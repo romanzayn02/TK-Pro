@@ -72,24 +72,56 @@ private fun shareSingleTransaction(
     strings: AppStrings
 ) {
     val isDebit = transaction.type == "DEBIT"
-    val typeLabel = if (isDebit) strings.debitTitle else strings.creditTitle
     val amountFormatted = LocalizationProvider.formatAmount(transaction.amount, currency, strings.isBn)
     val dateFormatted = LocalizationProvider.formatTimestamp(transaction.timestamp, strings.isBn)
     val methodLabel = LocalizationProvider.paymentMethodLabel(transaction.paymentMethod, strings.isBn)
 
     val shareText = buildString {
-        append("📄 ${strings.appTitle} — ")
-        append(if (strings.isBn) "লেনদেনের রশিদ\n" else "Transaction Receipt\n")
-        append("━━━━━━━━━━━━━━━\n")
-        if (!customerName.isNullOrBlank()) {
-            append(if (strings.isBn) "👤 নাম: $customerName\n" else "👤 Customer: $customerName\n")
+        if (isDebit) {
+            append(
+                if (strings.isBn) {
+                    "🔴 ${strings.appTitle} — বাকি / প্রদান হিসাব (Debit)\n"
+                } else {
+                    "🔴 ${strings.appTitle} — Debit Entry Notice\n"
+                }
+            )
+            append("━━━━━━━━━━━━━━━\n")
+            if (!customerName.isNullOrBlank()) {
+                append(
+                    if (strings.isBn) {
+                        "প্রিয় $customerName,\nআপনার নামে $amountFormatted বাকি/প্রদান (Debit) হিসাব যোগ হয়েছে।\n"
+                    } else {
+                        "Dear $customerName,\nA Debit entry of $amountFormatted has been added to your account.\n"
+                    }
+                )
+            } else {
+                append(if (strings.isBn) "💰 বাকি/প্রদান পরিমাণ: $amountFormatted\n" else "💰 Debit Amount: $amountFormatted\n")
+            }
+        } else {
+            append(
+                if (strings.isBn) {
+                    "🟢 ${strings.appTitle} — জমা / পরিশোধ রশিদ (Credit)\n"
+                } else {
+                    "🟢 ${strings.appTitle} — Payment Received Receipt (Credit)\n"
+                }
+            )
+            append("━━━━━━━━━━━━━━━\n")
+            if (!customerName.isNullOrBlank()) {
+                append(
+                    if (strings.isBn) {
+                        "প্রিয় $customerName,\nআপনার $amountFormatted জমা/পরিশোধ (Credit) সফলভাবে গৃহীত হয়েছে। ধন্যবাদ!\n"
+                    } else {
+                        "Dear $customerName,\nYour payment/credit of $amountFormatted has been received. Thank you!\n"
+                    }
+                )
+            } else {
+                append(if (strings.isBn) "💰 জমা/পরিশোধ পরিমাণ: $amountFormatted\n" else "💰 Credit Amount: $amountFormatted\n")
+            }
         }
         append(if (strings.isBn) "🕒 তারিখ: $dateFormatted\n" else "🕒 Date: $dateFormatted\n")
-        append(if (strings.isBn) "📌 ধরন: $typeLabel\n" else "📌 Type: $typeLabel\n")
-        append(if (strings.isBn) "💰 পরিমাণ: $amountFormatted\n" else "💰 Amount: $amountFormatted\n")
         append(if (strings.isBn) "💳 মাধ্যম: $methodLabel (${transaction.category})\n" else "💳 Method: $methodLabel (${transaction.category})\n")
         if (transaction.note.isNotBlank()) {
-            append(if (strings.isBn) "📝 নোট: ${transaction.note}\n" else "📝 Note: ${transaction.note}\n")
+            append(if (strings.isBn) "📝 বিবরণ: ${transaction.note}\n" else "📝 Note: ${transaction.note}\n")
         }
         if (balanceAfterTransaction != null) {
             val statusLabel = when {
@@ -99,7 +131,7 @@ private fun shareSingleTransaction(
             }
             val balFormatted = LocalizationProvider.formatAmount(abs(balanceAfterTransaction), currency, strings.isBn)
             append("━━━━━━━━━━━━━━━\n")
-            append(if (strings.isBn) "📊 বর্তমান জের: $balFormatted ($statusLabel)" else "📊 Running Balance: $balFormatted ($statusLabel)")
+            append(if (strings.isBn) "📊 বর্তমান জের: $balFormatted ($statusLabel)" else "📊 Current Balance: $balFormatted ($statusLabel)")
         }
     }
 

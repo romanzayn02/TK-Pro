@@ -1223,6 +1223,8 @@ fun SmsReminderBottomSheet(
     currencySymbol: String,
     businessName: String,
     ownerPhone: String,
+    lastTransactionAmount: Double? = null,
+    lastTransactionType: String? = null,
     onDismiss: () -> Unit,
     onCopiedNotice: (String) -> Unit
 ) {
@@ -1230,17 +1232,41 @@ fun SmsReminderBottomSheet(
     val clipboard = LocalClipboardManager.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val templates = remember(customerName, balanceAmount, currencySymbol, businessName, ownerPhone) {
+    var isCreditMode by remember(balanceAmount, lastTransactionType) {
+        mutableStateOf(
+            when {
+                balanceAmount < -0.001 -> true
+                balanceAmount > 0.001 -> false
+                else -> lastTransactionType == "CREDIT"
+            }
+        )
+    }
+
+    val templates = remember(
+        customerName,
+        balanceAmount,
+        currencySymbol,
+        businessName,
+        ownerPhone,
+        isCreditMode,
+        lastTransactionAmount,
+        strings.isBn
+    ) {
         LocalizationProvider.generateBengaliSmsTemplates(
             customerName = customerName,
             balanceAmount = balanceAmount,
             currencySymbol = currencySymbol,
             businessName = businessName,
-            ownerPhone = ownerPhone
+            ownerPhone = ownerPhone,
+            isCreditMode = isCreditMode,
+            lastTxAmount = lastTransactionAmount,
+            isBn = strings.isBn
         )
     }
-    var selectedIdx by remember { mutableStateOf(0) }
-    var customSmsText by remember(selectedIdx) { mutableStateOf(templates[selectedIdx].second) }
+    var selectedIdx by remember(isCreditMode) { mutableStateOf(0) }
+    var customSmsText by remember(selectedIdx, isCreditMode, templates) {
+        mutableStateOf(templates.getOrElse(selectedIdx) { templates.first() }.second)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1254,13 +1280,58 @@ fun SmsReminderBottomSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = strings.smsTemplateSheetTitle,
+                text = if (isCreditMode) {
+                    if (strings.isBn) "জমা ও দেবেন মেসেজ (Credit Message)" else "Credit & Payment Message"
+                } else {
+                    if (strings.isBn) "বকেয়া ও বাকি মেসেজ (Debit Message)" else "Debit & Due Reminder Message"
+                },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
+
+            // Debit vs Credit Message Mode Selector
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LiquidFilterChip(
+                    label = if (strings.isBn) "দিয়েছি / পাব (Debit)" else "Debit (Due)",
+                    selected = !isCreditMode,
+                    onClick = { isCreditMode = false },
+                    useDarkGlass = useDarkGlass,
+                    accentColor = TallyRubyRed,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (!isCreditMode) Color.White else TallyRubyRed
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    testTag = "sms_mode_debit_chip"
+                )
+                LiquidFilterChip(
+                    label = if (strings.isBn) "পেয়েছি / দেব (Credit)" else "Credit (Received)",
+                    selected = isCreditMode,
+                    onClick = { isCreditMode = true },
+                    useDarkGlass = useDarkGlass,
+                    accentColor = TallyEmeraldGreen,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (isCreditMode) Color.White else TallyEmeraldGreen
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    testTag = "sms_mode_credit_chip"
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -1277,7 +1348,7 @@ fun SmsReminderBottomSheet(
                             customSmsText = templates[idx].second
                         },
                         useDarkGlass = useDarkGlass,
-                        accentColor = TallyGoldAccent,
+                        accentColor = if (isCreditMode) TallyEmeraldGreen else TallyGoldAccent,
                         testTag = "sms_template_chip_$idx"
                     )
                 }

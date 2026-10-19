@@ -390,6 +390,11 @@ fun TallyKhataProApp(
     }
 
     activeSmsCustomer?.let { item ->
+        val latestTx = uiState.allTransactionsWithCustomer
+            .asSequence()
+            .map { it.transaction }
+            .filter { it.customerId == item.customer.id }
+            .maxByOrNull { it.timestamp }
         SmsReminderBottomSheet(
             strings = strings,
             useDarkGlass = useDarkGlass,
@@ -399,6 +404,8 @@ fun TallyKhataProApp(
             currencySymbol = uiState.settings.currencySymbol,
             businessName = uiState.settings.businessName,
             ownerPhone = uiState.settings.ownerPhone,
+            lastTransactionAmount = latestTx?.amount,
+            lastTransactionType = latestTx?.type,
             onDismiss = { activeSmsCustomer = null },
             onCopiedNotice = { msg -> viewModel.showStatusMessage(msg) }
         )

@@ -281,22 +281,102 @@ object LocalizationProvider {
         balanceAmount: Double,
         currencySymbol: String,
         businessName: String,
-        ownerPhone: String
+        ownerPhone: String,
+        isCreditMode: Boolean = balanceAmount < -0.001,
+        lastTxAmount: Double? = null,
+        isBn: Boolean = true
     ): List<Pair<String, String>> {
-        val cleanAmount = toBengaliDigits(numberFormat.format(abs(balanceAmount)))
-        val politeTemplate =
-            "প্রিয় $customerName, আসসালামু আলাইকুম। আমাদের '$businessName'-এ আপনার বর্তমান বকেয়া হিসাব $currencySymbol $cleanAmount। সুবিধাজনক সময়ে বকেয়া পরিশোধ করার জন্য বিনীত অনুরোধ করা হলো। যোগাযোগ: $ownerPhone।"
+        val effectiveShop = businessName.ifBlank { "TK Pro" }
+        val contactSuffix = if (ownerPhone.isNotBlank()) {
+            if (isBn) " যোগাযোগ: $ownerPhone।" else " Contact: $ownerPhone."
+        } else {
+            ""
+        }
+        val cleanBalance = if (isBn) {
+            toBengaliDigits(numberFormat.format(abs(balanceAmount)))
+        } else {
+            numberFormat.format(abs(balanceAmount))
+        }
+        val cleanLastTx = lastTxAmount?.takeIf { it > 0.0 }?.let {
+            if (isBn) toBengaliDigits(numberFormat.format(abs(it))) else numberFormat.format(abs(it))
+        } ?: cleanBalance
 
-        val urgentTemplate =
-            "সম্মানিত $customerName, '$businessName' থেকে আপনার পূর্বের বাকি $currencySymbol $cleanAmount দ্রুত পরিশোধ করার জন্য অনুরোধ জানানো হচ্ছে। বিকাশ/নগদ বা সরাসরি দোকানে জমা দিতে পারেন ($ownerPhone)। ধন্যবাদ।"
+        val currentStatusText = when {
+            balanceAmount > 0.001 -> if (isBn) {
+                "বর্তমান বকেয়া: $currencySymbol $cleanBalance (পাব)"
+            } else {
+                "Current Due: $currencySymbol $cleanBalance (Receivable)"
+            }
+            balanceAmount < -0.001 -> if (isBn) {
+                "আপনার পাওনা/জমা: $currencySymbol $cleanBalance (দেব)"
+            } else {
+                "Your Credit Balance: $currencySymbol $cleanBalance (Payable)"
+            }
+            else -> if (isBn) {
+                "বর্তমান ব্যালেন্স: $currencySymbol ০ (পরিশোধিত)"
+            } else {
+                "Current Balance: $currencySymbol 0 (Settled)"
+            }
+        }
 
-        val confirmationTemplate =
-            "প্রিয় $customerName, '$businessName'-এর হিসাব খাতা অনুযায়ী আপনার বর্তমান ব্যালেন্স $currencySymbol $cleanAmount বাকি রয়েছে। বিস্তারিত জানতে কল করুন: $ownerPhone।"
+        return if (!isCreditMode) {
+            // DEBIT / RECEIVABLE TEMPLATES (টাকা পাব / দিয়েছি — বাকি ও তাগাদা মেসেজ)
+            if (isBn) {
+                val debitEntryMsg =
+                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার নামে $currencySymbol $cleanLastTx বাকি/প্রদান (Debit) হিসাব যোগ হয়েছে। $currentStatusText।$contactSuffix"
+                val politeReminder =
+                    "প্রিয় $customerName, আসসালামু আলাইকুম। আমাদের '$effectiveShop'-এ আপনার বর্তমান বকেয়া হিসাব $currencySymbol $cleanBalance। সুবিধাজনক সময়ে বকেয়া পরিশোধ করার জন্য বিনীত অনুরোধ করা হলো।$contactSuffix"
+                val urgentReminder =
+                    "সম্মানিত $customerName, '$effectiveShop' থেকে আপনার পূর্বের বাকি $currencySymbol $cleanBalance দ্রুত পরিশোধ করার জন্য অনুরোধ জানানো হচ্ছে। বিকাশ/নগদ বা সরাসরি দোকানে জমা দিতে পারেন।$contactSuffix ধন্যবাদ।"
 
-        return listOf(
-            "বিনীত তাগাদা (Polite Reminder)" to politeTemplate,
-            "জরুরি তাগাদা (Urgent Reminder)" to urgentTemplate,
-            "হিসাব বিবরণী (Balance Statement)" to confirmationTemplate
-        )
+                listOf(
+                    "বাকি তাগাদা (Due Reminder)" to politeReminder,
+                    "নতুন বাকি (Debit Entry)" to debitEntryMsg,
+                    "জরুরি তাগাদা (Urgent Due)" to urgentReminder
+                )
+            } else {
+                val debitEntryMsg =
+                    "Dear $customerName, a Debit entry of $currencySymbol $cleanLastTx has been recorded in '$effectiveShop'. $currentStatusText.$contactSuffix"
+                val politeReminder =
+                    "Dear $customerName, your current due balance at '$effectiveShop' is $currencySymbol $cleanBalance. Kindly clear the due at your convenience.$contactSuffix"
+                val urgentReminder =
+                    "Dear $customerName, please settle your overdue balance of $currencySymbol $cleanBalance at '$effectiveShop' as soon as possible.$contactSuffix Thank you."
+
+                listOf(
+                    "Due Reminder" to politeReminder,
+                    "Debit Entry" to debitEntryMsg,
+                    "Urgent Reminder" to urgentReminder
+                )
+            }
+        } else {
+            // CREDIT / PAYMENT RECEIVED / PAYABLE TEMPLATES (টাকা দেব / পেয়েছি — জমা ও পরিশোধ মেসেজ)
+            if (isBn) {
+                val paymentReceivedMsg =
+                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার $currencySymbol $cleanLastTx জমা/পরিশোধ (Credit) সফলভাবে গৃহীত হয়েছে। ধন্যবাদ! $currentStatusText।$contactSuffix"
+                val payableAckMsg =
+                    "প্রিয় $customerName, আসসালামু আলাইকুম। আমাদের '$effectiveShop'-এর হিসাব অনুযায়ী আপনার $currencySymbol $cleanBalance আমাদের কাছে পাওনা/জমা (Credit) রয়েছে। ইনশাআল্লাহ শীঘ্রই পরিশোধ করা হবে।$contactSuffix"
+                val settledOrStatementMsg =
+                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার জমা হিসাব আপডেট করা হয়েছে। $currentStatusText। আমাদের সাথে লেনদেনের জন্য ধন্যবাদ।$contactSuffix"
+
+                listOf(
+                    "জমা প্রাপ্তি (Payment Received)" to paymentReceivedMsg,
+                    "দেবেন / পাওনা (Payable Info)" to payableAckMsg,
+                    "জমা বিবরণী (Credit Summary)" to settledOrStatementMsg
+                )
+            } else {
+                val paymentReceivedMsg =
+                    "Dear $customerName, we have received your payment/credit of $currencySymbol $cleanLastTx at '$effectiveShop'. Thank you! $currentStatusText.$contactSuffix"
+                val payableAckMsg =
+                    "Dear $customerName, according to '$effectiveShop' records, a credit/payable balance of $currencySymbol $cleanBalance is due to you.$contactSuffix"
+                val settledOrStatementMsg =
+                    "Dear $customerName, your credit ledger at '$effectiveShop' has been updated. $currentStatusText. Thank you for doing business with us!$contactSuffix"
+
+                listOf(
+                    "Payment Received" to paymentReceivedMsg,
+                    "Payable Info" to payableAckMsg,
+                    "Credit Summary" to settledOrStatementMsg
+                )
+            }
+        }
     }
 }

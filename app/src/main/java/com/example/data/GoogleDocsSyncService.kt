@@ -54,11 +54,13 @@ data class GoogleDocsSyncResult(
 object GoogleDocsSyncService {
 
     private const val SCOPE_DOCS = "https://www.googleapis.com/auth/documents"
+    private const val SCOPE_SPREADSHEETS = "https://www.googleapis.com/auth/spreadsheets"
     private const val SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
-    private const val OAUTH_SCOPE_STRING = "oauth2:$SCOPE_DOCS $SCOPE_DRIVE_FILE"
+    private const val OAUTH_SCOPE_STRING = "oauth2:$SCOPE_DOCS $SCOPE_SPREADSHEETS $SCOPE_DRIVE_FILE"
 
     private const val SYNC_START_MARKER = "===TALLYKHATA_SYNC_JSON_START==="
     private const val SYNC_END_MARKER = "===TALLYKHATA_SYNC_JSON_END==="
+    private const val SHEET_SYNC_ROW_MARKER = "===TALLYKHATA_SHEET_SYNC_JSON==="
 
     private val httpClient = OkHttpClient()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -68,6 +70,7 @@ object GoogleDocsSyncService {
             .setRequestedScopes(
                 listOf(
                     Scope(SCOPE_DOCS),
+                    Scope(SCOPE_SPREADSHEETS),
                     Scope(SCOPE_DRIVE_FILE)
                 )
             )
@@ -86,7 +89,7 @@ object GoogleDocsSyncService {
     suspend fun signOutAndBuildSignInIntent(context: Context): Intent = withContext(Dispatchers.IO) {
         val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
-            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_DRIVE_FILE))
+            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_SPREADSHEETS), Scope(SCOPE_DRIVE_FILE))
         val client = GoogleSignIn.getClient(context, gsoBuilder.build())
         try {
             suspendCancellableCoroutine<Unit> { cont ->
@@ -104,7 +107,7 @@ object GoogleDocsSyncService {
     fun buildGoogleSignInIntent(context: Context): Intent {
         val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
-            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_DRIVE_FILE))
+            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_SPREADSHEETS), Scope(SCOPE_DRIVE_FILE))
         val client = GoogleSignIn.getClient(context, gsoBuilder.build())
         return client.signInIntent
     }
@@ -414,6 +417,299 @@ object GoogleDocsSyncService {
         val regex = Regex("/document/d/([a-zA-Z0-9-_]+)")
         val match = regex.find(trimmed)
         return match?.groupValues?.getOrNull(1) ?: trimmed
+    }
+
+    fun extractSheetIdFromInput(rawInput: String): String {
+        val trimmed = rawInput.trim()
+        val regex = Regex("/spreadsheets/d/([a-zA-Z0-9-_]+)")
+        val match = regex.find(trimmed)
+        return match?.groupValues?.getOrNull(1) ?: trimmed
+    }
+
+    /**
+     * Pushes the current ledger (structured customer summary rows + transaction rows + embedded sync row)
+     * to a live Google Sheet. If [existingSheetId] is blank or inaccessible, creates a new Google Sheet.
+     */
+    suspend fun syncLedgerToGoogleSheet(
+        accessToken: String,
+        existingSheetId: String?,
+        settings: AppSettings,
+        customers: List<CustomerEntity>,
+        transactions: List<TransactionEntity>,
+        rawBackupJson: String
+    ): Result<GoogleDocsSyncResult> = withContext(Dispatchers.IO) {
+        try {
+            val sheetTitle = "${settings.businessName.ifBlank { "TK Pro" }} - Live Ledger Sheet"
+            var targetSheetId = existingSheetId?.trim()?.let { extractSheetIdFromInput(it) }.orEmpty()
+
+            if (targetSheetId.isNotEmpty()) {
+                if (!checkSpreadsheetAccessible(accessToken, targetSheetId)) {
+                    targetSheetId = ""
+                }
+            }
+
+            if (targetSheetId.isEmpty()) {
+                val createdId = createNewGoogleSheet(accessToken, sheetTitle)
+                    ?: return@withContext Result.failure(
+                        IllegalStateException("Could not create Google Sheet. Verify Google Sheets API is enabled.")
+                    )
+                targetSheetId = createdId
+            }
+
+            // Clear existing sheet values in A1:Z5000
+            val clearReq = Request.Builder()
+                .url("https://sheets.googleapis.com/v4/spreadsheets/$targetSheetId/values/A1:Z5000:clear")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .post("{}".toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(clearReq).execute().close()
+
+            // Build 2D values array
+            val valuesArray = buildGoogleSheetValuesArray(
+                settings = settings,
+                customers = customers,
+                transactions = transactions,
+                rawBackupJson = rawBackupJson
+            )
+            val bodyJson = JSONObject()
+                .put("majorDimension", "ROWS")
+                .put("values", valuesArray)
+                .toString()
+
+            val updateReq = Request.Builder()
+                .url("https://sheets.googleapis.com/v4/spreadsheets/$targetSheetId/values/A1?valueInputOption=USER_ENTERED")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .put(bodyJson.toRequestBody(jsonMediaType))
+                .build()
+
+            httpClient.newCall(updateReq).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val errBody = resp.body?.string().orEmpty()
+                    return@withContext Result.failure(
+                        IllegalStateException("Google Sheets update failed (${resp.code}): $errBody")
+                    )
+                }
+            }
+
+            val now = System.currentTimeMillis()
+            Result.success(
+                GoogleDocsSyncResult(
+                    documentId = targetSheetId,
+                    documentUrl = "https://docs.google.com/spreadsheets/d/$targetSheetId/edit",
+                    syncedAtMillis = now,
+                    customerCount = customers.size,
+                    transactionCount = transactions.size
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Reads the live Google Sheet and extracts the embedded JSON sync row to restore customers,
+     * transactions, and business settings into the app.
+     */
+    suspend fun pullLedgerFromGoogleSheet(
+        accessToken: String,
+        spreadsheetId: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = extractSheetIdFromInput(spreadsheetId)
+            if (cleanId.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("Invalid Google Sheet ID"))
+            }
+
+            val req = Request.Builder()
+                .url("https://sheets.googleapis.com/v4/spreadsheets/$cleanId/values/A1:Z5000")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val errBody = resp.body?.string().orEmpty()
+                    return@withContext Result.failure(
+                        IllegalStateException("Could not read Google Sheet (${resp.code}): $errBody")
+                    )
+                }
+
+                val bodyStr = resp.body?.string().orEmpty()
+                val sheetJson = JSONObject(bodyStr)
+                val rows = sheetJson.optJSONArray("values")
+                    ?: return@withContext Result.failure(
+                        IllegalStateException("Google Sheet is empty.")
+                    )
+
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONArray(i) ?: continue
+                    if (row.length() >= 2 && row.optString(0) == SHEET_SYNC_ROW_MARKER) {
+                        val jsonPayload = row.optString(1).trim()
+                        if (jsonPayload.isNotEmpty()) {
+                            return@withContext Result.success(jsonPayload)
+                        }
+                    }
+                }
+
+                return@withContext Result.failure(
+                    IllegalStateException("No TK Pro sync data found in this Google Sheet.")
+                )
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun checkSpreadsheetAccessible(accessToken: String, sheetId: String): Boolean {
+        val req = Request.Builder()
+            .url("https://sheets.googleapis.com/v4/spreadsheets/$sheetId?includeGridData=false")
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            return resp.isSuccessful
+        }
+    }
+
+    private fun createNewGoogleSheet(accessToken: String, title: String): String? {
+        val payload = JSONObject()
+            .put("properties", JSONObject().put("title", title))
+            .toString()
+        val req = Request.Builder()
+            .url("https://sheets.googleapis.com/v4/spreadsheets")
+            .addHeader("Authorization", "Bearer $accessToken")
+            .post(payload.toRequestBody(jsonMediaType))
+            .build()
+
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            val str = resp.body?.string() ?: return null
+            val json = JSONObject(str)
+            return json.optString("spreadsheetId").takeIf { it.isNotBlank() }
+        }
+    }
+
+    private fun buildGoogleSheetValuesArray(
+        settings: AppSettings,
+        customers: List<CustomerEntity>,
+        transactions: List<TransactionEntity>,
+        rawBackupJson: String
+    ): JSONArray {
+        val rows = JSONArray()
+        val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+        val nowStr = dateFormat.format(Date(System.currentTimeMillis()))
+        val txByCustomer = transactions.groupBy { it.customerId }
+        val customerMap = customers.associateBy { it.id }
+
+        var totalReceivable = 0.0
+        var totalPayable = 0.0
+        customers.forEach { c ->
+            val cTxs = txByCustomer[c.id].orEmpty()
+            val debit = cTxs.filter { it.type == "DEBIT" }.sumOf { it.amount }
+            val credit = cTxs.filter { it.type == "CREDIT" }.sumOf { it.amount }
+            val net = debit - credit
+            if (net > 0.001) totalReceivable += net
+            if (net < -0.001) totalPayable += abs(net)
+        }
+        val netOverall = totalReceivable - totalPayable
+
+        // Header & Summary Rows
+        rows.put(
+            JSONArray()
+                .put("TK Pro Live Ledger")
+                .put(settings.businessName.ifBlank { "TK Pro" })
+                .put("Phone")
+                .put(settings.ownerPhone)
+                .put("Last Synced")
+                .put(nowStr)
+        )
+        rows.put(
+            JSONArray()
+                .put("SUMMARY")
+                .put("Total Receivable (মোট পাবেন)")
+                .put(totalReceivable)
+                .put("Total Payable (মোট দেবেন)")
+                .put(totalPayable)
+                .put("Net Balance (মোট ব্যালেন্স)")
+                .put(netOverall)
+        )
+        rows.put(JSONArray())
+
+        // Customer Table Header
+        rows.put(
+            JSONArray()
+                .put("CUSTOMER ID")
+                .put("NAME (নাম)")
+                .put("PHONE (মোবাইল)")
+                .put("PARTY TYPE")
+                .put("ADDRESS (ঠিকানা)")
+                .put("TOTAL DEBIT (টাকা পাব)")
+                .put("TOTAL CREDIT (টাকা দেব)")
+                .put("NET BALANCE (ব্যালেন্স)")
+                .put("STATUS")
+        )
+        customers.forEach { c ->
+            val cTxs = txByCustomer[c.id].orEmpty()
+            val debit = cTxs.filter { it.type == "DEBIT" }.sumOf { it.amount }
+            val credit = cTxs.filter { it.type == "CREDIT" }.sumOf { it.amount }
+            val net = debit - credit
+            val status = when {
+                net > 0.001 -> "RECEIVABLE (পাবেন)"
+                net < -0.001 -> "PAYABLE (দেবেন)"
+                else -> "SETTLED (পরিশোধিত)"
+            }
+            rows.put(
+                JSONArray()
+                    .put(c.id)
+                    .put(c.name)
+                    .put(c.phone)
+                    .put(c.partyType)
+                    .put(c.address)
+                    .put(debit)
+                    .put(credit)
+                    .put(net)
+                    .put(status)
+            )
+        }
+        rows.put(JSONArray())
+
+        // Transactions Table Header
+        rows.put(
+            JSONArray()
+                .put("TX ID")
+                .put("DATE & TIME")
+                .put("CUSTOMER NAME")
+                .put("CUSTOMER PHONE")
+                .put("TYPE (ধরন)")
+                .put("AMOUNT (পরিমাণ)")
+                .put("CATEGORY (ক্যাটাগরি)")
+                .put("PAYMENT METHOD")
+                .put("NOTE (নোট)")
+        )
+        transactions.sortedByDescending { it.timestamp }.forEach { t ->
+            val cust = customerMap[t.customerId]
+            rows.put(
+                JSONArray()
+                    .put(t.id)
+                    .put(dateFormat.format(Date(t.timestamp)))
+                    .put(cust?.name ?: "")
+                    .put(cust?.phone ?: "")
+                    .put(t.type)
+                    .put(t.amount)
+                    .put(t.category)
+                    .put(t.paymentMethod)
+                    .put(t.note)
+            )
+        }
+        rows.put(JSONArray())
+
+        // Machine-readable restore row
+        rows.put(
+            JSONArray()
+                .put(SHEET_SYNC_ROW_MARKER)
+                .put(rawBackupJson)
+        )
+        return rows
     }
 
     private fun createNewGoogleDoc(accessToken: String, title: String): String? {

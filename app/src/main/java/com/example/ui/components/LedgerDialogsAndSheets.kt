@@ -12,8 +12,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,11 +52,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +76,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,10 +86,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -102,6 +112,7 @@ import com.example.ui.theme.TallyGoldAccent
 import com.example.ui.theme.TallyRubyRed
 import java.io.File
 import java.util.Calendar
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -172,6 +183,7 @@ fun AddCustomerBottomSheet(
     var address by remember { mutableStateOf("") }
     var openingDebitText by remember { mutableStateOf("") }
     var openingCreditText by remember { mutableStateOf("") }
+    var showMoreCustomerOptions by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val contactPickerLauncher = rememberLauncherForActivityResult(
@@ -219,8 +231,8 @@ fun AddCustomerBottomSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -229,11 +241,11 @@ fun AddCustomerBottomSheet(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(TallyCyanRefraction.copy(alpha = 0.2f))
                             .border(1.dp, TallyCyanRefraction, CircleShape),
@@ -242,77 +254,62 @@ fun AddCustomerBottomSheet(
                         Icon(
                             imageVector = Icons.Default.PersonAdd,
                             contentDescription = strings.addCustomer,
-                            tint = TallyCyanRefraction
+                            tint = TallyCyanRefraction,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     Text(
                         text = strings.addCustomer,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = strings.closeButton
-                    )
-                }
-            }
 
-            // Native Contact Picker Button
-            SpringyLiquidButton(
-                onClick = {
-                    val hasPerm = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.READ_CONTACTS
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (hasPerm) {
-                        contactPickerLauncher.launch(null)
-                    } else {
-                        contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            val hasPerm = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.READ_CONTACTS
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPerm) {
+                                contactPickerLauncher.launch(null)
+                            } else {
+                                contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(TallyCyanRefraction.copy(alpha = 0.18f))
+                            .border(1.dp, TallyCyanRefraction.copy(alpha = 0.6f), CircleShape)
+                            .testTag("contact_picker_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContactPhone,
+                            contentDescription = strings.importContact,
+                            tint = TallyCyanRefraction,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                },
-                accentColor = TallyCyanRefraction.copy(alpha = 0.85f),
-                secondaryColor = Color(0xFF0077B6),
-                modifier = Modifier.fillMaxWidth(),
-                testTag = "contact_picker_button"
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ContactPhone,
-                    contentDescription = strings.importContact,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = strings.importContact,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
 
-            // Party Type selector (Customer vs Supplier)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LiquidFilterChip(
-                    label = strings.partyTypeCustomer,
-                    selected = partyType == "CUSTOMER",
-                    onClick = { partyType = "CUSTOMER" },
-                    useDarkGlass = useDarkGlass,
-                    accentColor = TallyCyanRefraction,
-                    modifier = Modifier.weight(1f),
-                    testTag = "party_type_customer_chip"
-                )
-                LiquidFilterChip(
-                    label = strings.partyTypeSupplier,
-                    selected = partyType == "SUPPLIER",
-                    onClick = { partyType = "SUPPLIER" },
-                    useDarkGlass = useDarkGlass,
-                    accentColor = TallyGoldAccent,
-                    modifier = Modifier.weight(1f),
-                    testTag = "party_type_supplier_chip"
-                )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.closeButton,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
             OutlinedTextField(
@@ -323,7 +320,7 @@ fun AddCustomerBottomSheet(
                 },
                 label = { Text(strings.customerNameLabel) },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("customer_name_input"),
@@ -339,7 +336,7 @@ fun AddCustomerBottomSheet(
                 label = { Text(strings.phoneNumberLabel) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("customer_phone_input"),
@@ -349,64 +346,134 @@ fun AddCustomerBottomSheet(
                 )
             )
 
-            OutlinedTextField(
-                value = address,
-                onValueChange = { address = it },
-                label = { Text(strings.addressLabel) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("customer_address_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TallyCyanRefraction,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                )
-            )
-
-            // Optional opening balances
+            // Icon-only toggle for Extra Customer Options (Party Type, Address, Opening Balance)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = openingDebitText,
-                    onValueChange = { openingDebitText = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                    label = {
-                        Text(
-                            if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Debit ($currencySymbol)"
-                        )
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(16.dp),
+                IconButton(
+                    onClick = { showMoreCustomerOptions = !showMoreCustomerOptions },
                     modifier = Modifier
-                        .weight(1f)
-                        .testTag("opening_debit_input"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TallyRubyRed,
-                        unfocusedBorderColor = TallyRubyRed.copy(alpha = 0.45f)
-                    )
-                )
-                OutlinedTextField(
-                    value = openingCreditText,
-                    onValueChange = { openingCreditText = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                    label = {
-                        Text(
-                            if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Credit ($currencySymbol)"
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (showMoreCustomerOptions) {
+                                TallyCyanRefraction.copy(alpha = 0.24f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                            }
                         )
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("opening_credit_input"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TallyEmeraldGreen,
-                        unfocusedBorderColor = TallyEmeraldGreen.copy(alpha = 0.45f)
+                        .border(
+                            width = 1.dp,
+                            color = if (showMoreCustomerOptions) TallyCyanRefraction else Color.Transparent,
+                            shape = CircleShape
+                        )
+                        .testTag("toggle_customer_more_options")
+                ) {
+                    Icon(
+                        imageVector = if (showMoreCustomerOptions) Icons.Default.ExpandLess else Icons.Default.Tune,
+                        contentDescription = if (strings.isBn) "আরও অপশন" else "More Options",
+                        tint = if (showMoreCustomerOptions) TallyCyanRefraction else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
-                )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showMoreCustomerOptions,
+                enter = fadeIn() + expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut() + shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Party Type selector (Customer vs Supplier)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LiquidFilterChip(
+                            label = strings.partyTypeCustomer,
+                            selected = partyType == "CUSTOMER",
+                            onClick = { partyType = "CUSTOMER" },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyCyanRefraction,
+                            modifier = Modifier.weight(1f),
+                            testTag = "party_type_customer_chip"
+                        )
+                        LiquidFilterChip(
+                            label = strings.partyTypeSupplier,
+                            selected = partyType == "SUPPLIER",
+                            onClick = { partyType = "SUPPLIER" },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyGoldAccent,
+                            modifier = Modifier.weight(1f),
+                            testTag = "party_type_supplier_chip"
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it },
+                        label = { Text(strings.addressLabel) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("customer_address_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TallyCyanRefraction,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+
+                    // Optional opening balances
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = openingDebitText,
+                            onValueChange = { openingDebitText = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                            label = {
+                                Text(
+                                    if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Debit ($currencySymbol)"
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("opening_debit_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TallyRubyRed,
+                                unfocusedBorderColor = TallyRubyRed.copy(alpha = 0.45f)
+                            )
+                        )
+                        OutlinedTextField(
+                            value = openingCreditText,
+                            onValueChange = { openingCreditText = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                            label = {
+                                Text(
+                                    if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Credit ($currencySymbol)"
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("opening_credit_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = TallyEmeraldGreen,
+                                unfocusedBorderColor = TallyEmeraldGreen.copy(alpha = 0.45f)
+                            )
+                        )
+                    }
+                }
             }
 
             if (errorMessage != null) {
@@ -529,7 +596,20 @@ fun AddTransactionBottomSheet(
     var pendingCameraPair by remember { mutableStateOf<Pair<Uri, String>?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showMoreTxOptions by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val amountFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        delay(150)
+        try {
+            amountFocusRequester.requestFocus()
+            keyboardController?.show()
+        } catch (_: Exception) {
+        }
+    }
 
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -580,10 +660,10 @@ fun AddTransactionBottomSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Header
+            // Compact Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -595,34 +675,45 @@ fun AddTransactionBottomSheet(
                     } else {
                         strings.addEntryButton
                     },
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onDismiss) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = strings.closeButton
+                        contentDescription = strings.closeButton,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            // Dual Toggle: টাকা পাব / দিয়েছি (Debit) vs টাকা দেব / পেয়েছি (Credit)
+            // Compact Dual Toggle: টাকা পাব / দিয়েছি (Debit) vs টাকা দেব / পেয়েছি (Credit)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 SpringyLiquidButton(
-                    onClick = { txType = "DEBIT" },
+                    onClick = {
+                        txType = "DEBIT"
+                        try {
+                            amountFocusRequester.requestFocus()
+                            keyboardController?.show()
+                        } catch (_: Exception) {
+                        }
+                    },
                     accentColor = if (txType == "DEBIT") TallyRubyRed else TallyRubyRed.copy(alpha = 0.25f),
                     secondaryColor = if (txType == "DEBIT") Color(0xFFB71C1C) else TallyRubyRed.copy(alpha = 0.15f),
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     testTag = "toggle_debit_button"
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -633,17 +724,24 @@ fun AddTransactionBottomSheet(
                 }
 
                 SpringyLiquidButton(
-                    onClick = { txType = "CREDIT" },
+                    onClick = {
+                        txType = "CREDIT"
+                        try {
+                            amountFocusRequester.requestFocus()
+                            keyboardController?.show()
+                        } catch (_: Exception) {
+                        }
+                    },
                     accentColor = if (txType == "CREDIT") TallyEmeraldGreen else TallyEmeraldGreen.copy(alpha = 0.25f),
                     secondaryColor = if (txType == "CREDIT") Color(0xFF007E33) else TallyEmeraldGreen.copy(alpha = 0.15f),
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     testTag = "toggle_credit_button"
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -656,11 +754,6 @@ fun AddTransactionBottomSheet(
 
             // Customer selector if not pre-locked
             if (preselectedCustomerId == null && customers.isNotEmpty()) {
-                Text(
-                    text = strings.selectCustomerLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -671,7 +764,14 @@ fun AddTransactionBottomSheet(
                         LiquidFilterChip(
                             label = item.customer.name,
                             selected = selectedCustomerId == item.customer.id,
-                            onClick = { selectedCustomerId = item.customer.id },
+                            onClick = {
+                                selectedCustomerId = item.customer.id
+                                try {
+                                    amountFocusRequester.requestFocus()
+                                    keyboardController?.show()
+                                } catch (_: Exception) {
+                                }
+                            },
                             useDarkGlass = useDarkGlass,
                             accentColor = activeAccent,
                             testTag = "select_customer_chip_${item.customer.id}"
@@ -680,7 +780,7 @@ fun AddTransactionBottomSheet(
                 }
             }
 
-            // Amount Input with Quick Denominations
+            // Primary Amount Input
             OutlinedTextField(
                 value = amountText,
                 onValueChange = {
@@ -688,15 +788,16 @@ fun AddTransactionBottomSheet(
                     errorMessage = null
                 },
                 label = { Text("${strings.amountLabel} ($currencySymbol)") },
-                textStyle = MaterialTheme.typography.headlineMedium.copy(
+                textStyle = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = activeAccent
                 ),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .focusRequester(amountFocusRequester)
                     .testTag("transaction_amount_input"),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = activeAccent,
@@ -704,155 +805,13 @@ fun AddTransactionBottomSheet(
                 )
             )
 
-            // Quick Amount Pills (+100, +500, +1000, +5000)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(100, 500, 1000, 5000).forEach { inc ->
-                    val labelText = if (strings.isBn) {
-                        "+${LocalizationProvider.toBengaliDigits(inc.toString())}"
-                    } else {
-                        "+$inc"
-                    }
-                    LiquidFilterChip(
-                        label = labelText,
-                        selected = false,
-                        onClick = {
-                            val current = amountText.toDoubleOrNull() ?: 0.0
-                            val updated = current + inc
-                            amountText = if (updated % 1.0 == 0.0) {
-                                updated.toLong().toString()
-                            } else {
-                                updated.toString()
-                            }
-                        },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = activeAccent,
-                        modifier = Modifier.weight(1f),
-                        testTag = "quick_amount_$inc"
-                    )
-                }
-            }
-
-            // Payment Method Selector (Cash, bKash, Nagad, Bank)
-            Text(
-                text = strings.paymentMethodLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val methods = listOf(
-                    Triple("CASH", if (strings.isBn) "নগদ (Cash)" else "Cash", TallyEmeraldGreen),
-                    Triple("BKASH", if (strings.isBn) "বিকাশ (bKash)" else "bKash", Color(0xFFE2136E)),
-                    Triple("NAGAD", if (strings.isBn) "নগদ অ্যাপ (Nagad)" else "Nagad", Color(0xFFF7941D)),
-                    Triple("BANK", if (strings.isBn) "ব্যাংক (Bank)" else "Bank", TallyCyanRefraction)
-                )
-                methods.forEach { (code, label, tint) ->
-                    LiquidFilterChip(
-                        label = label,
-                        selected = paymentMethod == code,
-                        onClick = { paymentMethod = code },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = tint,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = when (code) {
-                                    "CASH" -> Icons.Default.Payments
-                                    "BANK" -> Icons.Default.AccountBalance
-                                    else -> Icons.Default.PhoneAndroid
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (paymentMethod == code) Color.White else tint
-                            )
-                        },
-                        testTag = "payment_method_$code"
-                    )
-                }
-            }
-
-            // Customizable Category Selector
-            Text(
-                text = strings.categoryLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                categories.forEach { cat ->
-                    LiquidFilterChip(
-                        label = cat,
-                        selected = selectedCategory == cat,
-                        onClick = { selectedCategory = cat },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = activeAccent,
-                        testTag = "category_chip_$cat"
-                    )
-                }
-            }
-
-            // Precise Timestamp Row with Date & Time Picker
-            LiquidGlassCard(
-                useDarkGlass = useDarkGlass,
-                accentTint = TallyCyanRefraction,
-                cornerRadius = 16.dp,
-                onClick = { showDatePicker = true },
-                testTag = "timestamp_picker_card",
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.EditCalendar,
-                            contentDescription = strings.dateTimeLabel,
-                            tint = TallyCyanRefraction
-                        )
-                        Column {
-                            Text(
-                                text = strings.dateTimeLabel,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = LocalizationProvider.formatTimestamp(timestamp, strings.isBn),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Text(
-                        text = if (strings.isBn) "পরিবর্তন" else "Change",
-                        color = TallyCyanRefraction,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-
-            // Detailed Note
+            // Compact Note Input
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it },
                 label = { Text(strings.noteLabel) },
-                maxLines = 3,
-                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("transaction_note_input"),
@@ -862,128 +821,250 @@ fun AddTransactionBottomSheet(
                 )
             )
 
-            // Receipt Attachment Controls (Camera & Photo Picker)
-            Text(
-                text = strings.attachReceiptLabel,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Clean Icon-Only Action Bar (Date/Time, Camera, Gallery, More Options Toggle, & Attached Receipt Thumbnail)
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                SpringyLiquidButton(
-                    onClick = {
-                        val hasCam = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.CAMERA
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (hasCam) {
-                            val pair = viewModel.createCameraReceiptUri(context)
-                            if (pair != null) {
-                                pendingCameraPair = pair
-                                takePictureLauncher.launch(pair.first)
-                            }
-                        } else {
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
-                    },
-                    accentColor = Color(0xFF1E88E5),
-                    secondaryColor = Color(0xFF0D47A1),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                    testTag = "camera_receipt_button"
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AddAPhoto,
-                        contentDescription = strings.cameraReceiptButton,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = strings.cameraReceiptButton,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    // Date & Time Picker Icon Button
+                    IconButton(
+                        onClick = { showDatePicker = true },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(TallyCyanRefraction.copy(alpha = 0.16f))
+                            .border(1.dp, TallyCyanRefraction.copy(alpha = 0.5f), CircleShape)
+                            .testTag("timestamp_picker_card")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EditCalendar,
+                            contentDescription = strings.dateTimeLabel,
+                            tint = TallyCyanRefraction,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Camera Receipt Icon Button
+                    IconButton(
+                        onClick = {
+                            val hasCam = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasCam) {
+                                val pair = viewModel.createCameraReceiptUri(context)
+                                if (pair != null) {
+                                    pendingCameraPair = pair
+                                    takePictureLauncher.launch(pair.first)
+                                }
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1E88E5).copy(alpha = 0.16f))
+                            .border(1.dp, Color(0xFF1E88E5).copy(alpha = 0.5f), CircleShape)
+                            .testTag("camera_receipt_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddAPhoto,
+                            contentDescription = strings.cameraReceiptButton,
+                            tint = Color(0xFF1E88E5),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Gallery Receipt Icon Button
+                    IconButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF8E24AA).copy(alpha = 0.16f))
+                            .border(1.dp, Color(0xFF8E24AA).copy(alpha = 0.5f), CircleShape)
+                            .testTag("gallery_receipt_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = strings.galleryReceiptButton,
+                            tint = Color(0xFF8E24AA),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // More Options (Payment Method, Category, Quick Amounts) Icon Toggle
+                    IconButton(
+                        onClick = { showMoreTxOptions = !showMoreTxOptions },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (showMoreTxOptions) {
+                                    activeAccent.copy(alpha = 0.24f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                }
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (showMoreTxOptions) activeAccent else Color.Transparent,
+                                shape = CircleShape
+                            )
+                            .testTag("toggle_tx_more_options")
+                    ) {
+                        Icon(
+                            imageVector = if (showMoreTxOptions) Icons.Default.ExpandLess else Icons.Default.Tune,
+                            contentDescription = if (strings.isBn) "আরও অপশন" else "More Options",
+                            tint = if (showMoreTxOptions) activeAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
 
-                SpringyLiquidButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    accentColor = Color(0xFF8E24AA),
-                    secondaryColor = Color(0xFF4A148C),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                    testTag = "gallery_receipt_button"
+                // Compact Icon/Thumbnail Preview if Receipt Attached
+                AnimatedVisibility(
+                    visible = receiptPath != null,
+                    enter = fadeIn() + scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = strings.galleryReceiptButton,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = strings.galleryReceiptButton,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    receiptPath?.let { path ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            AsyncImage(
+                                model = if (path.startsWith("/")) File(path) else Uri.parse(path),
+                                contentDescription = strings.receiptAttachedBadge,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .border(1.5.dp, TallyEmeraldGreen, CircleShape)
+                            )
+                            IconButton(
+                                onClick = { receiptPath = null },
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(TallyRubyRed.copy(alpha = 0.2f))
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = strings.deleteButton,
+                                    tint = TallyRubyRed,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            // Receipt Preview if attached
+            // Expandable Extra Options with Smooth Spring Animation
             AnimatedVisibility(
-                visible = receiptPath != null,
-                enter = fadeIn() + scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                visible = showMoreTxOptions,
+                enter = fadeIn() + expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut() + shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
             ) {
-                receiptPath?.let { path ->
-                    LiquidGlassCard(
-                        useDarkGlass = useDarkGlass,
-                        accentTint = TallyEmeraldGreen,
-                        cornerRadius = 16.dp,
-                        modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Quick Amount Pills (+100, +500, +1000, +5000)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                AsyncImage(
-                                    model = if (path.startsWith("/")) File(path) else Uri.parse(path),
-                                    contentDescription = strings.receiptAttachedBadge,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                )
-                                Column {
-                                    Text(
-                                        text = strings.receiptAttachedBadge,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = TallyEmeraldGreen,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = File(path).name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                        listOf(100, 500, 1000, 5000).forEach { inc ->
+                            val labelText = if (strings.isBn) {
+                                "+${LocalizationProvider.toBengaliDigits(inc.toString())}"
+                            } else {
+                                "+$inc"
                             }
-                            IconButton(onClick = { receiptPath = null }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = strings.deleteButton
-                                )
-                            }
+                            LiquidFilterChip(
+                                label = labelText,
+                                selected = false,
+                                onClick = {
+                                    val current = amountText.toDoubleOrNull() ?: 0.0
+                                    val updated = current + inc
+                                    amountText = if (updated % 1.0 == 0.0) {
+                                        updated.toLong().toString()
+                                    } else {
+                                        updated.toString()
+                                    }
+                                },
+                                useDarkGlass = useDarkGlass,
+                                accentColor = activeAccent,
+                                modifier = Modifier.weight(1f),
+                                testTag = "quick_amount_$inc"
+                            )
+                        }
+                    }
+
+                    // Payment Method Selector (Cash, bKash, Nagad, Bank)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val methods = listOf(
+                            Triple("CASH", if (strings.isBn) "নগদ" else "Cash", TallyEmeraldGreen),
+                            Triple("BKASH", if (strings.isBn) "বিকাশ" else "bKash", Color(0xFFE2136E)),
+                            Triple("NAGAD", if (strings.isBn) "নগদ অ্যাপ" else "Nagad", Color(0xFFF7941D)),
+                            Triple("BANK", if (strings.isBn) "ব্যাংক" else "Bank", TallyCyanRefraction)
+                        )
+                        methods.forEach { (code, label, tint) ->
+                            LiquidFilterChip(
+                                label = label,
+                                selected = paymentMethod == code,
+                                onClick = { paymentMethod = code },
+                                useDarkGlass = useDarkGlass,
+                                accentColor = tint,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = when (code) {
+                                            "CASH" -> Icons.Default.Payments
+                                            "BANK" -> Icons.Default.AccountBalance
+                                            else -> Icons.Default.PhoneAndroid
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = if (paymentMethod == code) Color.White else tint
+                                    )
+                                },
+                                testTag = "payment_method_$code"
+                            )
+                        }
+                    }
+
+                    // Customizable Category Selector
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            LiquidFilterChip(
+                                label = cat,
+                                selected = selectedCategory == cat,
+                                onClick = { selectedCategory = cat },
+                                useDarkGlass = useDarkGlass,
+                                accentColor = activeAccent,
+                                testTag = "category_chip_$cat"
+                            )
                         }
                     }
                 }

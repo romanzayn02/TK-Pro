@@ -8,10 +8,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -110,6 +112,11 @@ fun TallyKhataProApp(
     var editingTransaction by remember { mutableStateOf<com.example.data.TransactionEntity?>(null) }
     var activeSmsCustomer by remember { mutableStateOf<CustomerWithBalance?>(null) }
     var viewingReceiptPath by remember { mutableStateOf<String?>(null) }
+    var isDashboardSearching by remember { mutableStateOf(false) }
+
+    val hideBarsForSearch = isDashboardSearching &&
+        uiState.currentTab == MainTab.DASHBOARD &&
+        uiState.selectedCustomerDetail == null
 
     // Auto-dismiss status banner after 3.5 seconds
     LaunchedEffect(uiState.statusBannerMessage) {
@@ -125,14 +132,28 @@ fun TallyKhataProApp(
             contentColor = MaterialTheme.colorScheme.onBackground,
             contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
-                TopLiquidAppBar(
-                    appTitle = strings.appTitle,
-                    onAddCustomerClick = { showAddCustomerSheet = true },
-                    addCustomerLabel = strings.addCustomer
-                )
+                AnimatedVisibility(
+                    visible = !hideBarsForSearch,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                        expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                        shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
+                ) {
+                    TopLiquidAppBar(
+                        appTitle = strings.appTitle,
+                        onAddCustomerClick = { showAddCustomerSheet = true },
+                        addCustomerLabel = strings.addCustomer
+                    )
+                }
             },
             bottomBar = {
-                if (uiState.selectedCustomerDetail == null) {
+                AnimatedVisibility(
+                    visible = uiState.selectedCustomerDetail == null && !hideBarsForSearch,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                        expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                        shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
+                ) {
                     BottomLiquidNavigationBar(
                         currentTab = uiState.currentTab,
                         strings = strings,
@@ -213,6 +234,9 @@ fun TallyKhataProApp(
                                 },
                                 onOpenSmsReminder = { customerWithBalance ->
                                     activeSmsCustomer = customerWithBalance
+                                },
+                                onSearchingChanged = { searching ->
+                                    isDashboardSearching = searching
                                 }
                             )
 
@@ -481,37 +505,28 @@ private fun BottomLiquidNavigationBar(
                 tabs.forEach { (tab, label, icon) ->
                     val isSelected = currentTab == tab
                     val pillColor = if (isSelected) TallyCyanRefraction else Color.Transparent
-                    Row(
+                    Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
+                            .size(44.dp)
+                            .clip(CircleShape)
                             .background(
                                 if (isSelected) pillColor.copy(alpha = 0.24f) else Color.Transparent
                             )
                             .border(
                                 width = if (isSelected) 1.dp else 0.dp,
                                 color = if (isSelected) TallyCyanRefraction else Color.Transparent,
-                                shape = RoundedCornerShape(50)
+                                shape = CircleShape
                             )
                             .clickable { onSelectTab(tab) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
                             .testTag("nav_tab_${tab.name.lowercase()}"),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = label,
                             tint = if (isSelected) TallyCyanRefraction else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
-                        if (isSelected) {
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = TallyCyanRefraction
-                            )
-                        }
                     }
                 }
             }

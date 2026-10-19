@@ -31,8 +31,10 @@ data class AppSettings(
     val isSetupCompleted: Boolean = false,
     val isSettingsLoaded: Boolean = false,
     val syncedGoogleDocId: String = "",
+    val syncedGoogleSheetId: String = "",
     val autoSyncGoogleDocs: Boolean = true,
-    val lastSyncedAtMillis: Long = 0L
+    val lastSyncedAtMillis: Long = 0L,
+    val lastSheetSyncedAtMillis: Long = 0L
 )
 
 class LedgerRepository(
@@ -48,8 +50,10 @@ class LedgerRepository(
         val USE_DARK_GLASS = booleanPreferencesKey("use_dark_glass")
         val IS_SETUP_COMPLETED = booleanPreferencesKey("is_setup_completed")
         val SYNCED_GOOGLE_DOC_ID = stringPreferencesKey("synced_google_doc_id")
+        val SYNCED_GOOGLE_SHEET_ID = stringPreferencesKey("synced_google_sheet_id")
         val AUTO_SYNC_GOOGLE_DOCS = booleanPreferencesKey("auto_sync_google_docs")
         val LAST_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_synced_at_millis")
+        val LAST_SHEET_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_sheet_synced_at_millis")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -78,8 +82,10 @@ class LedgerRepository(
             isSetupCompleted = prefs[Keys.IS_SETUP_COMPLETED] ?: false,
             isSettingsLoaded = true,
             syncedGoogleDocId = prefs[Keys.SYNCED_GOOGLE_DOC_ID] ?: "",
+            syncedGoogleSheetId = prefs[Keys.SYNCED_GOOGLE_SHEET_ID] ?: "",
             autoSyncGoogleDocs = prefs[Keys.AUTO_SYNC_GOOGLE_DOCS] ?: true,
-            lastSyncedAtMillis = prefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L
+            lastSyncedAtMillis = prefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
+            lastSheetSyncedAtMillis = prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
         )
     }
 
@@ -233,6 +239,15 @@ class LedgerRepository(
             prefs[Keys.SYNCED_GOOGLE_DOC_ID] = docId.trim()
             if (syncedAtMillis > 0L) {
                 prefs[Keys.LAST_SYNCED_AT_MILLIS] = syncedAtMillis
+            }
+        }
+    }
+
+    suspend fun updateGoogleSheetsSyncInfo(sheetId: String, syncedAtMillis: Long = System.currentTimeMillis()) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SYNCED_GOOGLE_SHEET_ID] = sheetId.trim()
+            if (syncedAtMillis > 0L) {
+                prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] = syncedAtMillis
             }
         }
     }

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,7 +59,144 @@ import com.example.ui.theme.TallyCyanRefraction
 import com.example.ui.theme.TallyEmeraldGreen
 import com.example.ui.theme.TallyGoldAccent
 import com.example.ui.theme.TallyRubyRed
+import androidx.core.content.FileProvider
+import java.io.File
 import kotlin.math.abs
+
+private fun shareSingleTransaction(
+    context: android.content.Context,
+    transaction: TransactionEntity,
+    customerName: String?,
+    balanceAfterTransaction: Double?,
+    currency: String,
+    strings: AppStrings
+) {
+    val isDebit = transaction.type == "DEBIT"
+    val typeLabel = if (isDebit) strings.debitTitle else strings.creditTitle
+    val amountFormatted = LocalizationProvider.formatAmount(transaction.amount, currency, strings.isBn)
+    val dateFormatted = LocalizationProvider.formatTimestamp(transaction.timestamp, strings.isBn)
+    val methodLabel = LocalizationProvider.paymentMethodLabel(transaction.paymentMethod, strings.isBn)
+
+    val shareText = buildString {
+        append("📄 ${strings.appTitle} — ")
+        append(if (strings.isBn) "লেনদেনের রশিদ\n" else "Transaction Receipt\n")
+        append("━━━━━━━━━━━━━━━\n")
+        if (!customerName.isNullOrBlank()) {
+            append(if (strings.isBn) "👤 নাম: $customerName\n" else "👤 Customer: $customerName\n")
+        }
+        append(if (strings.isBn) "🕒 তারিখ: $dateFormatted\n" else "🕒 Date: $dateFormatted\n")
+        append(if (strings.isBn) "📌 ধরন: $typeLabel\n" else "📌 Type: $typeLabel\n")
+        append(if (strings.isBn) "💰 পরিমাণ: $amountFormatted\n" else "💰 Amount: $amountFormatted\n")
+        append(if (strings.isBn) "💳 মাধ্যম: $methodLabel (${transaction.category})\n" else "💳 Method: $methodLabel (${transaction.category})\n")
+        if (transaction.note.isNotBlank()) {
+            append(if (strings.isBn) "📝 নোট: ${transaction.note}\n" else "📝 Note: ${transaction.note}\n")
+        }
+        if (balanceAfterTransaction != null) {
+            val statusLabel = when {
+                balanceAfterTransaction > 0.001 -> strings.receivableBadge
+                balanceAfterTransaction < -0.001 -> strings.payableBadge
+                else -> strings.settledBadge
+            }
+            val balFormatted = LocalizationProvider.formatAmount(abs(balanceAfterTransaction), currency, strings.isBn)
+            append("━━━━━━━━━━━━━━━\n")
+            append(if (strings.isBn) "📊 বর্তমান জের: $balFormatted ($statusLabel)" else "📊 Running Balance: $balFormatted ($statusLabel)")
+        }
+    }
+
+    try {
+        val receiptPath = transaction.receiptUri
+        val receiptFile = if (!receiptPath.isNullOrBlank() && receiptPath.startsWith("/")) {
+            File(receiptPath).takeIf { it.exists() }
+        } else {
+            null
+        }
+
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            putExtra(Intent.EXTRA_TEXT, shareText)
+            if (receiptFile != null) {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    receiptFile
+                )
+                putExtra(Intent.EXTRA_STREAM, uri)
+                type = "image/*"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } else {
+                type = "text/plain"
+            }
+        }
+        context.startActivity(
+            Intent.createChooser(
+                sendIntent,
+                if (strings.isBn) "লেনদেন শেয়ার করুন" else "Share Transaction"
+            )
+        )
+    } catch (_: Exception) {
+    }
+}
+
+private fun shareCustomerLedgerStatement(
+    context: android.content.Context,
+    customerDetail: CustomerWithBalance,
+    transactions: List<TransactionEntity>,
+    currency: String,
+    strings: AppStrings
+) {
+    val customer = customerDetail.customer
+    val net = customerDetail.netBalance
+    val statusLabel = when {
+        net > 0.001 -> strings.receivableBadge
+        net < -0.001 -> strings.payableBadge
+        else -> strings.settledBadge
+    }
+
+    val statementText = buildString {
+        append("📊 ${strings.appTitle} — ")
+        append(if (strings.isBn) "হিসাব বিবরণী\n" else "Account Statement\n")
+        append("━━━━━━━━━━━━━━━\n")
+        append("👤 ${customer.name}")
+        if (customer.phone.isNotBlank()) append(" (${customer.phone})")
+        append("\n")
+        append(
+            if (strings.isBn) {
+                "• মোট দিয়েছি/পাব: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, true)}\n" +
+                    "• মোট পেয়েছি/দেব: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, true)}\n" +
+                    "• বর্তমান ব্যালেন্স: ${LocalizationProvider.formatAmount(abs(net), currency, true)} ($statusLabel)\n"
+            } else {
+                "• Total Debit: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, false)}\n" +
+                    "• Total Credit: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, false)}\n" +
+                    "• Net Balance: ${LocalizationProvider.formatAmount(abs(net), currency, false)} ($statusLabel)\n"
+            }
+        )
+        if (transactions.isNotEmpty()) {
+            append("━━━━━━━━━━━━━━━\n")
+            append(if (strings.isBn) "সাম্প্রতিক লেনদেন:\n" else "Recent Transactions:\n")
+            transactions.take(10).forEach { tx ->
+                val tSign = if (tx.type == "DEBIT") "+" else "-"
+                val tAmt = LocalizationProvider.formatAmount(tx.amount, currency, strings.isBn)
+                val tDate = LocalizationProvider.formatTimestamp(tx.timestamp, strings.isBn)
+                append("• $tDate: $tSign$tAmt (${tx.category})")
+                if (tx.note.isNotBlank()) append(" - ${tx.note}")
+                append("\n")
+            }
+        }
+    }
+
+    try {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, statementText)
+        }
+        context.startActivity(
+            Intent.createChooser(
+                sendIntent,
+                if (strings.isBn) "হিসাব বিবরণী শেয়ার করুন" else "Share Ledger Statement"
+            )
+        )
+    } catch (_: Exception) {
+    }
+}
 
 @Composable
 fun CustomerDetailScreen(
@@ -174,15 +312,50 @@ fun CustomerDetailScreen(
                                 }
                             }
 
-                            IconButton(
-                                onClick = onDeleteCustomer,
-                                modifier = Modifier.testTag("delete_customer_button")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteOutline,
-                                    contentDescription = strings.deleteButton,
-                                    tint = TallyRubyRed
-                                )
+                                IconButton(
+                                    onClick = {
+                                        shareCustomerLedgerStatement(
+                                            context = context,
+                                            customerDetail = customerDetail,
+                                            transactions = transactions,
+                                            currency = currency,
+                                            strings = strings
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(TallyCyanRefraction.copy(alpha = 0.18f))
+                                        .border(1.dp, TallyCyanRefraction.copy(alpha = 0.5f), CircleShape)
+                                        .testTag("detail_share_ledger_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = if (strings.isBn) "হিসাব শেয়ার" else "Share Statement",
+                                        tint = TallyCyanRefraction,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = onDeleteCustomer,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(TallyRubyRed.copy(alpha = 0.16f))
+                                        .testTag("delete_customer_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = strings.deleteButton,
+                                        tint = TallyRubyRed,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -227,7 +400,7 @@ fun CustomerDetailScreen(
                             )
                         }
 
-                        // Quick Communications: Direct Dial (`tel:`) and Bengali SMS Reminder
+                        // Quick Communications: Direct Dial (`tel:`), SMS Reminder, and Share Statement
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -249,7 +422,7 @@ fun CustomerDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Call,
-                                    contentDescription = null,
+                                    contentDescription = strings.callDirect,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -270,7 +443,7 @@ fun CustomerDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Sms,
-                                    contentDescription = null,
+                                    contentDescription = strings.smsReminder,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -327,7 +500,8 @@ fun CustomerDetailScreen(
                     val balanceAfter = runningBalancesMap[tx.id]
                     TransactionItemGlassCard(
                         transaction = tx,
-                        customerName = null,
+                        customerName = customer.name,
+                        showCustomerNameTitle = false,
                         balanceAfterTransaction = balanceAfter,
                         strings = strings,
                         currency = currency,
@@ -542,6 +716,7 @@ fun TransactionHistoryScreen(
 fun TransactionItemGlassCard(
     transaction: TransactionEntity,
     customerName: String?,
+    showCustomerNameTitle: Boolean = true,
     balanceAfterTransaction: Double? = null,
     strings: AppStrings,
     currency: String,
@@ -551,6 +726,7 @@ fun TransactionItemGlassCard(
     onDelete: () -> Unit,
     onCardClick: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val isDebit = transaction.type == "DEBIT"
     val accent = if (isDebit) TallyRubyRed else TallyEmeraldGreen
     val typeBadgeText = if (isDebit) strings.debitTitle else strings.creditTitle
@@ -596,7 +772,7 @@ fun TransactionItemGlassCard(
                     }
 
                     Column {
-                        if (customerName != null) {
+                        if (customerName != null && showCustomerNameTitle) {
                             Text(
                                 text = customerName,
                                 style = MaterialTheme.typography.titleMedium,
@@ -727,28 +903,20 @@ fun TransactionItemGlassCard(
                     }
 
                     if (!transaction.receiptUri.isNullOrBlank()) {
-                        Row(
+                        IconButton(
+                            onClick = { onViewReceipt(transaction.receiptUri) },
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(TallyEmeraldGreen.copy(alpha = 0.22f))
-                                .border(1.dp, TallyEmeraldGreen, RoundedCornerShape(10.dp))
-                                .clickable { onViewReceipt(transaction.receiptUri) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .testTag("view_receipt_badge_${transaction.id}"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(TallyEmeraldGreen.copy(alpha = 0.2f))
+                                .border(1.dp, TallyEmeraldGreen.copy(alpha = 0.6f), CircleShape)
+                                .testTag("view_receipt_badge_${transaction.id}")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Receipt,
                                 contentDescription = strings.receiptAttachedBadge,
                                 tint = TallyEmeraldGreen,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = strings.receiptAttachedBadge,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TallyEmeraldGreen,
-                                fontWeight = FontWeight.Bold
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -758,6 +926,29 @@ fun TransactionItemGlassCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    IconButton(
+                        onClick = {
+                            shareSingleTransaction(
+                                context = context,
+                                transaction = transaction,
+                                customerName = customerName,
+                                balanceAfterTransaction = balanceAfterTransaction,
+                                currency = currency,
+                                strings = strings
+                            )
+                        },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("share_transaction_button_${transaction.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = if (strings.isBn) "শেয়ার করুন" else "Share",
+                            tint = TallyEmeraldGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     if (onEdit != null) {
                         IconButton(
                             onClick = onEdit,

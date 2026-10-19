@@ -2,11 +2,15 @@ package com.example.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -47,14 +52,21 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,11 +95,26 @@ fun DashboardScreen(
     onOpenAddCustomer: () -> Unit,
     onOpenQuickEntry: (String, Long?) -> Unit,
     onOpenSmsReminder: (CustomerWithBalance) -> Unit,
+    onSearchingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val useDarkGlass = uiState.settings.useDarkGlassTheme
     val currency = uiState.settings.currencySymbol
+
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val isSearching = isSearchFocused || uiState.searchQuery.isNotEmpty()
+
+    LaunchedEffect(isSearching) {
+        onSearchingChanged(isSearching)
+    }
+
+    BackHandler(enabled = isSearching) {
+        onSearchQueryChange("")
+        isSearchFocused = false
+        focusManager.clearFocus()
+    }
 
     LazyColumn(
         modifier = modifier
@@ -97,19 +124,26 @@ fun DashboardScreen(
             start = 16.dp,
             end = 16.dp,
             top = 12.dp,
-            bottom = 110.dp
+            bottom = if (isSearching) 24.dp else 110.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isSearching) 10.dp else 14.dp)
     ) {
-        // 1. Hero Ledger Dashboard Card with Net Balance
+        // 1. Hero Ledger Dashboard Card with Net Balance (Smoothly hides when searching)
         item(key = "hero_ledger_summary") {
-            LiquidGlassCard(
-                useDarkGlass = useDarkGlass,
-                accentTint = TallyCyanRefraction,
-                cornerRadius = 24.dp,
-                testTag = "ledger_summary_hero_card",
-                modifier = Modifier.fillMaxWidth()
+            AnimatedVisibility(
+                visible = !isSearching,
+                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                    expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
             ) {
+                LiquidGlassCard(
+                    useDarkGlass = useDarkGlass,
+                    accentTint = TallyCyanRefraction,
+                    cornerRadius = 24.dp,
+                    testTag = "ledger_summary_hero_card",
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -407,9 +441,10 @@ fun DashboardScreen(
                     }
                 }
             }
+            }
         }
 
-        // 2. Search Bar & Filter Chips
+        // 2. Search Bar & Filter Chips (Filter chips smoothly hide when searching)
         item(key = "search_and_filters") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -417,15 +452,37 @@ fun DashboardScreen(
                     onValueChange = onSearchQueryChange,
                     placeholder = { Text(strings.searchPlaceholder) },
                     leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = TallyCyanRefraction
-                        )
+                        if (isSearching) {
+                            IconButton(
+                                onClick = {
+                                    onSearchQueryChange("")
+                                    isSearchFocused = false
+                                    focusManager.clearFocus()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = strings.cancelButton,
+                                    tint = TallyCyanRefraction
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = TallyCyanRefraction
+                            )
+                        }
                     },
                     trailingIcon = {
-                        if (uiState.searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { onSearchQueryChange("") }) {
+                        if (uiState.searchQuery.isNotEmpty() || isSearchFocused) {
+                            IconButton(
+                                onClick = {
+                                    onSearchQueryChange("")
+                                    isSearchFocused = false
+                                    focusManager.clearFocus()
+                                }
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Clear,
                                     contentDescription = strings.cancelButton
@@ -437,6 +494,9 @@ fun DashboardScreen(
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            isSearchFocused = focusState.isFocused
+                        }
                         .testTag("customer_search_input"),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = TallyCyanRefraction,
@@ -444,45 +504,53 @@ fun DashboardScreen(
                     )
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                AnimatedVisibility(
+                    visible = !isSearching,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                        expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                        shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
                 ) {
-                    LiquidFilterChip(
-                        label = strings.filterAll,
-                        selected = uiState.activeFilter == CustomerFilter.ALL,
-                        onClick = { onFilterChange(CustomerFilter.ALL) },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyCyanRefraction,
-                        testTag = "filter_chip_all"
-                    )
-                    LiquidFilterChip(
-                        label = strings.filterReceivable,
-                        selected = uiState.activeFilter == CustomerFilter.RECEIVABLE,
-                        onClick = { onFilterChange(CustomerFilter.RECEIVABLE) },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyRubyRed,
-                        testTag = "filter_chip_receivable"
-                    )
-                    LiquidFilterChip(
-                        label = strings.filterPayable,
-                        selected = uiState.activeFilter == CustomerFilter.PAYABLE,
-                        onClick = { onFilterChange(CustomerFilter.PAYABLE) },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyEmeraldGreen,
-                        testTag = "filter_chip_payable"
-                    )
-                    LiquidFilterChip(
-                        label = strings.filterSupplier,
-                        selected = uiState.activeFilter == CustomerFilter.SUPPLIER,
-                        onClick = { onFilterChange(CustomerFilter.SUPPLIER) },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyGoldAccent,
-                        testTag = "filter_chip_supplier"
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LiquidFilterChip(
+                            label = strings.filterAll,
+                            selected = uiState.activeFilter == CustomerFilter.ALL,
+                            onClick = { onFilterChange(CustomerFilter.ALL) },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyCyanRefraction,
+                            testTag = "filter_chip_all"
+                        )
+                        LiquidFilterChip(
+                            label = strings.filterReceivable,
+                            selected = uiState.activeFilter == CustomerFilter.RECEIVABLE,
+                            onClick = { onFilterChange(CustomerFilter.RECEIVABLE) },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyRubyRed,
+                            testTag = "filter_chip_receivable"
+                        )
+                        LiquidFilterChip(
+                            label = strings.filterPayable,
+                            selected = uiState.activeFilter == CustomerFilter.PAYABLE,
+                            onClick = { onFilterChange(CustomerFilter.PAYABLE) },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyEmeraldGreen,
+                            testTag = "filter_chip_payable"
+                        )
+                        LiquidFilterChip(
+                            label = strings.filterSupplier,
+                            selected = uiState.activeFilter == CustomerFilter.SUPPLIER,
+                            onClick = { onFilterChange(CustomerFilter.SUPPLIER) },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyGoldAccent,
+                            testTag = "filter_chip_supplier"
+                        )
+                    }
                 }
             }
         }
@@ -557,6 +625,7 @@ fun DashboardScreen(
                         strings = strings,
                         currency = currency,
                         useDarkGlass = useDarkGlass,
+                        isSearching = isSearching,
                         onCardClick = { onOpenCustomerDetail(item.customer.id) },
                         onDirectCall = {
                             if (item.customer.phone.isNotBlank()) {
@@ -582,6 +651,7 @@ private fun CustomerLedgerRowCard(
     strings: AppStrings,
     currency: String,
     useDarkGlass: Boolean,
+    isSearching: Boolean = false,
     onCardClick: () -> Unit,
     onDirectCall: () -> Unit,
     onSmsReminder: () -> Unit,
@@ -704,62 +774,86 @@ private fun CustomerLedgerRowCard(
                 }
             }
 
-            // Quick Actions Row inside Customer Card: Direct Dial, SMS Reminder, +Debit, +Credit
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Quick Actions Row inside Customer Card (Smoothly hides during search for a compact result list)
+            AnimatedVisibility(
+                visible = !isSearching,
+                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                    expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconButton(
-                        onClick = onDirectCall,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(TallyEmeraldGreen.copy(alpha = 0.18f))
-                            .testTag("call_customer_button_${item.customer.id}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = strings.callDirect,
-                            tint = TallyEmeraldGreen,
-                            modifier = Modifier.size(18.dp)
-                        )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconButton(
+                            onClick = onDirectCall,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(TallyEmeraldGreen.copy(alpha = 0.18f))
+                                .testTag("call_customer_button_${item.customer.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = strings.callDirect,
+                                tint = TallyEmeraldGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onSmsReminder,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(TallyGoldAccent.copy(alpha = 0.18f))
+                                .testTag("sms_customer_button_${item.customer.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sms,
+                                contentDescription = strings.smsReminder,
+                                tint = TallyGoldAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
-                    IconButton(
-                        onClick = onSmsReminder,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(TallyGoldAccent.copy(alpha = 0.18f))
-                            .testTag("sms_customer_button_${item.customer.id}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sms,
-                            contentDescription = strings.smsReminder,
-                            tint = TallyGoldAccent,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LiquidFilterChip(
-                        label = "+ ${strings.debitShort}",
-                        selected = false,
-                        onClick = onQuickDebit,
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyRubyRed,
-                        testTag = "customer_quick_debit_${item.customer.id}"
-                    )
-                    LiquidFilterChip(
-                        label = "+ ${strings.creditShort}",
-                        selected = false,
-                        onClick = onQuickCredit,
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyEmeraldGreen,
-                        testTag = "customer_quick_credit_${item.customer.id}"
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        IconButton(
+                            onClick = onQuickDebit,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(TallyRubyRed.copy(alpha = 0.18f))
+                                .border(1.dp, TallyRubyRed.copy(alpha = 0.5f), CircleShape)
+                                .testTag("customer_quick_debit_${item.customer.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = strings.debitShort,
+                                tint = TallyRubyRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onQuickCredit,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(TallyEmeraldGreen.copy(alpha = 0.18f))
+                                .border(1.dp, TallyEmeraldGreen.copy(alpha = 0.5f), CircleShape)
+                                .testTag("customer_quick_credit_${item.customer.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = strings.creditShort,
+                                tint = TallyEmeraldGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -45,7 +45,9 @@ enum class CustomerFilter {
 
 enum class GoogleDocsSyncAction {
     PUSH_TO_DOCS,
-    PULL_FROM_DOCS
+    PULL_FROM_DOCS,
+    PUSH_TO_SHEETS,
+    PULL_FROM_SHEETS
 }
 
 data class LedgerUiState(
@@ -568,12 +570,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     ) {
         val currentSettings = uiState.value.settings
         val isBn = currentSettings.language != "EN"
-        val resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
-            ?.let { GoogleDocsSyncService.extractDocIdFromInput(it) }
-            ?: currentSettings.syncedGoogleDocId
 
         when (action) {
             GoogleDocsSyncAction.PUSH_TO_DOCS -> {
+                val resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
+                    ?.let { GoogleDocsSyncService.extractDocIdFromInput(it) }
+                    ?: currentSettings.syncedGoogleDocId
                 val customers = repository.getAllCustomersSnapshot()
                 val transactions = repository.getAllTransactionsSnapshot()
                 val rawJson = repository.exportBackupJson(currentSettings)
@@ -606,6 +608,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             GoogleDocsSyncAction.PULL_FROM_DOCS -> {
+                val resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
+                    ?.let { GoogleDocsSyncService.extractDocIdFromInput(it) }
+                    ?: currentSettings.syncedGoogleDocId
                 if (resolvedDocId.isBlank()) {
                     _isSyncingGoogleDocs.value = false
                     _statusBannerMessage.value = if (isBn) {
@@ -648,12 +653,96 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
             }
+
+            GoogleDocsSyncAction.PUSH_TO_SHEETS -> {
+                val resolvedSheetId = customDocIdInput?.takeIf { it.isNotBlank() }
+                    ?.let { GoogleDocsSyncService.extractSheetIdFromInput(it) }
+                    ?: currentSettings.syncedGoogleSheetId
+                val customers = repository.getAllCustomersSnapshot()
+                val transactions = repository.getAllTransactionsSnapshot()
+                val rawJson = repository.exportBackupJson(currentSettings)
+                val result = GoogleDocsSyncService.syncLedgerToGoogleSheet(
+                    accessToken = accessToken,
+                    existingSheetId = resolvedSheetId,
+                    settings = currentSettings,
+                    customers = customers,
+                    transactions = transactions,
+                    rawBackupJson = rawJson
+                )
+                _isSyncingGoogleDocs.value = false
+                result.onSuccess { syncRes ->
+                    repository.updateGoogleSheetsSyncInfo(
+                        sheetId = syncRes.documentId,
+                        syncedAtMillis = syncRes.syncedAtMillis
+                    )
+                    _statusBannerMessage.value = if (isBn) {
+                        "✅ Google Sheets-এ লাইভ সিঙ্ক সম্পন্ন হয়েছে!"
+                    } else {
+                        "✅ Live synced to Google Sheets!"
+                    }
+                }.onFailure { err ->
+                    _statusBannerMessage.value = if (isBn) {
+                        "❌ Google Sheets সিঙ্ক ব্যর্থ: ${err.localizedMessage}"
+                    } else {
+                        "❌ Google Sheets sync failed: ${err.localizedMessage}"
+                    }
+                }
+            }
+
+            GoogleDocsSyncAction.PULL_FROM_SHEETS -> {
+                val resolvedSheetId = customDocIdInput?.takeIf { it.isNotBlank() }
+                    ?.let { GoogleDocsSyncService.extractSheetIdFromInput(it) }
+                    ?: currentSettings.syncedGoogleSheetId
+                if (resolvedSheetId.isBlank()) {
+                    _isSyncingGoogleDocs.value = false
+                    _statusBannerMessage.value = if (isBn) {
+                        "❌ অনুগ্রহ করে প্রথমে Google Sheet ID বা লিংক দিন"
+                    } else {
+                        "❌ Please enter a Google Sheet ID or link first"
+                    }
+                    return
+                }
+                val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleSheet(
+                    accessToken = accessToken,
+                    spreadsheetId = resolvedSheetId
+                )
+                pullRes.onSuccess { jsonPayload ->
+                    val importRes = repository.importBackupJson(jsonPayload)
+                    _isSyncingGoogleDocs.value = false
+                    importRes.onSuccess { (cCount, tCount) ->
+                        repository.updateGoogleSheetsSyncInfo(
+                            sheetId = resolvedSheetId,
+                            syncedAtMillis = System.currentTimeMillis()
+                        )
+                        _statusBannerMessage.value = if (isBn) {
+                            "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন সিঙ্ক হয়েছে!"
+                        } else {
+                            "✅ Restored $cCount customers & $tCount transactions from Google Sheets!"
+                        }
+                    }.onFailure { err ->
+                        _statusBannerMessage.value = if (isBn) {
+                            "❌ ডাটা পার্সিং ত্রুটি: ${err.localizedMessage}"
+                        } else {
+                            "❌ Data parse error: ${err.localizedMessage}"
+                        }
+                    }
+                }.onFailure { err ->
+                    _isSyncingGoogleDocs.value = false
+                    _statusBannerMessage.value = if (isBn) {
+                        "❌ Google Sheets থেকে পড়া যায়নি: ${err.localizedMessage}"
+                    } else {
+                        "❌ Failed to pull from Google Sheets: ${err.localizedMessage}"
+                    }
+                }
+            }
         }
     }
 
     private fun triggerAutoSyncGoogleDocsIfConfigured() {
         val currentSettings = uiState.value.settings
-        if (!currentSettings.autoSyncGoogleDocs || currentSettings.syncedGoogleDocId.isBlank()) {
+        val hasDoc = currentSettings.syncedGoogleDocId.isNotBlank()
+        val hasSheet = currentSettings.syncedGoogleSheetId.isNotBlank()
+        if (!currentSettings.autoSyncGoogleDocs || (!hasDoc && !hasSheet)) {
             return
         }
         val appContext = getApplication<Application>()
@@ -663,19 +752,37 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 val customers = repository.getAllCustomersSnapshot()
                 val transactions = repository.getAllTransactionsSnapshot()
                 val rawJson = repository.exportBackupJson(uiState.value.settings)
-                val res = GoogleDocsSyncService.syncLedgerToGoogleDoc(
-                    accessToken = authOutcome.accessToken,
-                    existingDocId = currentSettings.syncedGoogleDocId,
-                    settings = uiState.value.settings,
-                    customers = customers,
-                    transactions = transactions,
-                    rawBackupJson = rawJson
-                )
-                res.onSuccess { syncRes ->
-                    repository.updateGoogleDocsSyncInfo(
-                        docId = syncRes.documentId,
-                        syncedAtMillis = syncRes.syncedAtMillis
+                if (hasDoc) {
+                    val res = GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                        accessToken = authOutcome.accessToken,
+                        existingDocId = currentSettings.syncedGoogleDocId,
+                        settings = uiState.value.settings,
+                        customers = customers,
+                        transactions = transactions,
+                        rawBackupJson = rawJson
                     )
+                    res.onSuccess { syncRes ->
+                        repository.updateGoogleDocsSyncInfo(
+                            docId = syncRes.documentId,
+                            syncedAtMillis = syncRes.syncedAtMillis
+                        )
+                    }
+                }
+                if (hasSheet) {
+                    val sheetRes = GoogleDocsSyncService.syncLedgerToGoogleSheet(
+                        accessToken = authOutcome.accessToken,
+                        existingSheetId = currentSettings.syncedGoogleSheetId,
+                        settings = uiState.value.settings,
+                        customers = customers,
+                        transactions = transactions,
+                        rawBackupJson = rawJson
+                    )
+                    sheetRes.onSuccess { syncRes ->
+                        repository.updateGoogleSheetsSyncInfo(
+                            sheetId = syncRes.documentId,
+                            syncedAtMillis = syncRes.syncedAtMillis
+                        )
+                    }
                 }
             }
         }

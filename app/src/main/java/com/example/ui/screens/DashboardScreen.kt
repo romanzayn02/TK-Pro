@@ -62,9 +62,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -180,14 +183,44 @@ fun DashboardScreen(
                                 )
                             }
                             Column {
-                                Text(
-                                    text = uiState.settings.businessName.ifBlank { strings.appTitle },
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                val isGoogleConnected = uiState.settings.syncedGoogleDocId.isNotBlank() ||
+                                    uiState.settings.syncedGoogleSheetId.isNotBlank()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = uiState.settings.businessName.ifBlank { strings.appTitle },
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (isGoogleConnected) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(TallyEmeraldGreen.copy(alpha = 0.14f))
+                                                .border(
+                                                    1.dp,
+                                                    TallyEmeraldGreen.copy(alpha = 0.45f),
+                                                    RoundedCornerShape(50)
+                                                )
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                .testTag("home_google_connected_badge")
+                                        ) {
+                                            Text(
+                                                text = "✅",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                            GoogleGLogoIcon(modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
                                 Text(
                                     text = strings.appSubtitle,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -859,3 +892,64 @@ private fun CustomerLedgerRowCard(
         }
     }
 }
+
+@Composable
+private fun GoogleGLogoIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val stroke = size.minDimension * 0.22f
+        val diameter = size.minDimension - stroke
+        val topLeft = Offset(stroke / 2f, stroke / 2f)
+        val arcSize = Size(diameter, diameter)
+        val arcStroke = Stroke(width = stroke, cap = StrokeCap.Butt)
+
+        // Red top-left arc
+        drawArc(
+            color = Color(0xFFEA4335),
+            startAngle = -145f,
+            sweepAngle = 100f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = arcStroke
+        )
+        // Yellow left-bottom arc
+        drawArc(
+            color = Color(0xFFFBBC05),
+            startAngle = 145f,
+            sweepAngle = 70f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = arcStroke
+        )
+        // Green bottom-right arc
+        drawArc(
+            color = Color(0xFF34A853),
+            startAngle = 45f,
+            sweepAngle = 100f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = arcStroke
+        )
+        // Blue right arc
+        drawArc(
+            color = Color(0xFF4285F4),
+            startAngle = -12f,
+            sweepAngle = 57f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = arcStroke
+        )
+        // Blue horizontal crossbar of the 'G'
+        drawLine(
+            color = Color(0xFF4285F4),
+            start = Offset(size.width * 0.52f, size.height * 0.5f),
+            end = Offset(size.width - stroke * 0.2f, size.height * 0.5f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Butt
+        )
+    }
+}
+

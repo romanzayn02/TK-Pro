@@ -9,8 +9,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -40,6 +47,8 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
@@ -49,6 +58,7 @@ import androidx.compose.material.icons.filled.TableChart
 import com.example.data.GoogleDocsSyncService
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -115,6 +125,8 @@ fun SettingsScreen(
     var requestAccessEmail by remember(signedInEmail) {
         mutableStateOf(signedInEmail ?: "")
     }
+    var showDocsSection by remember { mutableStateOf(false) }
+    var showSheetsSection by remember { mutableStateOf(false) }
     var showAccessErrorHelp by remember { mutableStateOf(false) }
 
     val scopeConsentLauncher = rememberLauncherForActivityResult(
@@ -200,539 +212,27 @@ fun SettingsScreen(
             )
         }
 
-        // 0. Live Google Docs Cloud Sync Card
+        // 0. Compact Expandable Google Docs & Sheets Cloud Sync Card
         item(key = "google_docs_live_sync_card") {
+            val isDocConnected = settings.syncedGoogleDocId.isNotBlank()
+            val isSheetConnected = settings.syncedGoogleSheetId.isNotBlank()
+
             LiquidGlassCard(
                 useDarkGlass = useDarkGlass,
                 accentTint = TallyCyanRefraction,
-                cornerRadius = 24.dp,
+                cornerRadius = 22.dp,
                 testTag = "google_docs_sync_card",
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Compact Top Header + Auto-Sync Switch
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                tint = TallyCyanRefraction
-                            )
-                            Column {
-                                Text(
-                                    text = if (strings.isBn) {
-                                        "লাইভ Google Docs ও Sheets সিঙ্ক"
-                                    } else {
-                                        "Live Google Docs & Sheets Sync"
-                                    },
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (strings.isBn) {
-                                        "আপনার সম্পূর্ণ হিসাব খাতা সরাসরি Google Docs এবং Google Sheets ফাইলে লাইভ সেভ ও রিস্টোর করুন"
-                                    } else {
-                                        "Sync your ledger live with Google Docs & Google Sheets"
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (isSyncingDocs) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.5.dp,
-                                color = TallyCyanRefraction
-                            )
-                        }
-                    }
-
-                    // Auto-sync toggle row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (strings.isBn) {
-                                    "অটোমেটিক লাইভ সিঙ্ক"
-                                } else {
-                                    "Auto-Sync on Every Change"
-                                },
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = if (strings.isBn) {
-                                    "নতুন কাস্টমার বা লেনদেন যোগ করলেই Google Doc আপডেট হবে"
-                                } else {
-                                    "Automatically update linked Google Doc after adding entries"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = settings.autoSyncGoogleDocs,
-                            onCheckedChange = { viewModel.setAutoSyncGoogleDocs(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = TallyEmeraldGreen
-                            ),
-                            modifier = Modifier.testTag("auto_sync_google_docs_switch")
-                        )
-                    }
-
-                    // Connected Google Doc status & Open button
-                    if (settings.syncedGoogleDocId.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(TallyEmeraldGreen.copy(alpha = 0.12f))
-                                .border(1.dp, TallyEmeraldGreen.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-                                .padding(12.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudDone,
-                                            contentDescription = null,
-                                            tint = TallyEmeraldGreen,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = if (strings.isBn) "যুক্ত Google Doc" else "Linked Google Doc",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = TallyEmeraldGreen,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    LiquidFilterChip(
-                                        label = if (strings.isBn) "ডক খুলুন" else "Open Doc",
-                                        selected = true,
-                                        onClick = {
-                                            try {
-                                                val docUrl = "https://docs.google.com/document/d/${settings.syncedGoogleDocId}/edit"
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(docUrl)))
-                                            } catch (_: Exception) {
-                                            }
-                                        },
-                                        useDarkGlass = useDarkGlass,
-                                        accentColor = TallyEmeraldGreen,
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = Color.White
-                                            )
-                                        },
-                                        testTag = "open_synced_google_doc_button"
-                                    )
-                                }
-
-                                Text(
-                                    text = "ID: ${settings.syncedGoogleDocId}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                if (settings.lastSyncedAtMillis > 0L) {
-                                    val timeStr = LocalizationProvider.formatTimestamp(
-                                        settings.lastSyncedAtMillis,
-                                        strings.isBn
-                                    )
-                                    Text(
-                                        text = if (strings.isBn) "সর্বশেষ সিঙ্ক: $timeStr" else "Last synced: $timeStr",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Input for existing Google Doc URL or ID
-                    OutlinedTextField(
-                        value = customDocInput,
-                        onValueChange = { customDocInput = it },
-                        label = {
-                            Text(
-                                if (strings.isBn) {
-                                    "Google Doc লিংক বা ID (নতুন তৈরির জন্য খালি রাখুন)"
-                                } else {
-                                    "Google Doc URL or ID (Leave blank to create new)"
-                                }
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("google_doc_id_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TallyCyanRefraction,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        )
-                    )
-
-                    // Push & Pull Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        SpringyLiquidButton(
-                            onClick = {
-                                if (!isSyncingDocs) {
-                                    viewModel.performGoogleDocsSync(
-                                        context = context,
-                                        action = GoogleDocsSyncAction.PUSH_TO_DOCS,
-                                        customDocIdInput = customDocInput,
-                                        onNeedsConsent = { intentSender, action, docId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = docId
-                                            googleDocsConsentLauncher.launch(
-                                                IntentSenderRequest.Builder(intentSender).build()
-                                            )
-                                        },
-                                        onNeedsSignInIntent = { signInIntent, action, docId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = docId
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
-                                    )
-                                }
-                            },
-                            accentColor = TallyCyanRefraction,
-                            secondaryColor = Color(0xFF0077B6),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                            testTag = "push_google_docs_sync_button"
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (strings.isBn) {
-                                    "Google Docs-এ সিঙ্ক"
-                                } else {
-                                    "Sync to Google Docs"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        SpringyLiquidButton(
-                            onClick = {
-                                if (!isSyncingDocs) {
-                                    viewModel.performGoogleDocsSync(
-                                        context = context,
-                                        action = GoogleDocsSyncAction.PULL_FROM_DOCS,
-                                        customDocIdInput = customDocInput,
-                                        onNeedsConsent = { intentSender, action, docId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = docId
-                                            googleDocsConsentLauncher.launch(
-                                                IntentSenderRequest.Builder(intentSender).build()
-                                            )
-                                        },
-                                        onNeedsSignInIntent = { signInIntent, action, docId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = docId
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
-                                    )
-                                }
-                            },
-                            accentColor = TallyEmeraldGreen,
-                            secondaryColor = Color(0xFF007E33),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                            testTag = "pull_google_docs_sync_button"
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudSync,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (strings.isBn) {
-                                    "ডক থেকে রিস্টোর"
-                                } else {
-                                    "Restore from Doc"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // --- Google Sheets Live Sync Section ---
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(top = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.TableChart,
-                            contentDescription = null,
-                            tint = TallyEmeraldGreen,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = if (strings.isBn) {
-                                "লাইভ Google Sheets স্প্রেডশিট সিঙ্ক"
-                            } else {
-                                "Live Google Sheets Spreadsheet Sync"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    if (settings.syncedGoogleSheetId.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(TallyEmeraldGreen.copy(alpha = 0.12f))
-                                .border(1.dp, TallyEmeraldGreen.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-                                .padding(12.dp)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudDone,
-                                            contentDescription = null,
-                                            tint = TallyEmeraldGreen,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = if (strings.isBn) "যুক্ত Google Sheet" else "Linked Google Sheet",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = TallyEmeraldGreen,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    LiquidFilterChip(
-                                        label = if (strings.isBn) "শিট খুলুন" else "Open Sheet",
-                                        selected = true,
-                                        onClick = {
-                                            try {
-                                                val sheetUrl = "https://docs.google.com/spreadsheets/d/${settings.syncedGoogleSheetId}/edit"
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(sheetUrl)))
-                                            } catch (_: Exception) {
-                                            }
-                                        },
-                                        useDarkGlass = useDarkGlass,
-                                        accentColor = TallyEmeraldGreen,
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = Color.White
-                                            )
-                                        },
-                                        testTag = "open_synced_google_sheet_button"
-                                    )
-                                }
-
-                                Text(
-                                    text = "ID: ${settings.syncedGoogleSheetId}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                if (settings.lastSheetSyncedAtMillis > 0L) {
-                                    val timeStr = LocalizationProvider.formatTimestamp(
-                                        settings.lastSheetSyncedAtMillis,
-                                        strings.isBn
-                                    )
-                                    Text(
-                                        text = if (strings.isBn) "সর্বশেষ শিট সিঙ্ক: $timeStr" else "Last Sheet sync: $timeStr",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = customSheetInput,
-                        onValueChange = { customSheetInput = it },
-                        label = {
-                            Text(
-                                if (strings.isBn) {
-                                    "Google Sheet লিংক বা ID (নতুন তৈরির জন্য খালি রাখুন)"
-                                } else {
-                                    "Google Sheet URL or ID (Leave blank to create new)"
-                                }
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("google_sheet_id_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TallyEmeraldGreen,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                        )
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        SpringyLiquidButton(
-                            onClick = {
-                                if (!isSyncingDocs) {
-                                    viewModel.performGoogleDocsSync(
-                                        context = context,
-                                        action = GoogleDocsSyncAction.PUSH_TO_SHEETS,
-                                        customDocIdInput = customSheetInput,
-                                        onNeedsConsent = { intentSender, action, sheetId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = sheetId
-                                            googleDocsConsentLauncher.launch(
-                                                IntentSenderRequest.Builder(intentSender).build()
-                                            )
-                                        },
-                                        onNeedsSignInIntent = { signInIntent, action, sheetId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = sheetId
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
-                                    )
-                                }
-                            },
-                            accentColor = TallyEmeraldGreen,
-                            secondaryColor = Color(0xFF007E33),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                            testTag = "push_google_sheets_sync_button"
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.TableChart,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (strings.isBn) {
-                                    "Google Sheets-এ সিঙ্ক"
-                                } else {
-                                    "Sync to Google Sheets"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        SpringyLiquidButton(
-                            onClick = {
-                                if (!isSyncingDocs) {
-                                    viewModel.performGoogleDocsSync(
-                                        context = context,
-                                        action = GoogleDocsSyncAction.PULL_FROM_SHEETS,
-                                        customDocIdInput = customSheetInput,
-                                        onNeedsConsent = { intentSender, action, sheetId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = sheetId
-                                            googleDocsConsentLauncher.launch(
-                                                IntentSenderRequest.Builder(intentSender).build()
-                                            )
-                                        },
-                                        onNeedsSignInIntent = { signInIntent, action, sheetId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = sheetId
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
-                                    )
-                                }
-                            },
-                            accentColor = TallyCyanRefraction,
-                            secondaryColor = Color(0xFF0077B6),
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                            testTag = "pull_google_sheets_sync_button"
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudSync,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (strings.isBn) {
-                                    "শিট থেকে রিস্টোর"
-                                } else {
-                                    "Restore from Sheet"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Active Google Account & Switch Account Row + 403 Fix Helper
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -742,29 +242,534 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AccountCircle,
+                                imageVector = Icons.Default.CloudSync,
                                 contentDescription = null,
                                 tint = TallyCyanRefraction,
                                 modifier = Modifier.size(20.dp)
                             )
                             Column {
                                 Text(
-                                    text = if (strings.isBn) "যুক্ত Google অ্যাকাউন্ট" else "Google Account",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = if (strings.isBn) {
+                                        "Google ক্লাউড সিঙ্ক"
+                                    } else {
+                                        "Google Cloud Sync"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = signedInEmail ?: if (strings.isBn) "নির্বাচন করা হয়নি" else "Not selected yet",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = if (strings.isBn) {
+                                        "অটো-সিঙ্ক এবং Docs / Sheets অপশন"
+                                    } else {
+                                        "Tap Docs or Sheets to expand options"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (isSyncingDocs) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = TallyCyanRefraction
+                                )
+                            }
+                            Switch(
+                                checked = settings.autoSyncGoogleDocs,
+                                onCheckedChange = { viewModel.setAutoSyncGoogleDocs(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = TallyEmeraldGreen
+                                ),
+                                modifier = Modifier.testTag("auto_sync_google_docs_switch")
+                            )
+                        }
+                    }
+
+                    // 1. Compact Clickable Google Docs Row
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (isDocConnected) {
+                                    TallyEmeraldGreen.copy(alpha = 0.10f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                }
+                            )
+                            .border(
+                                1.dp,
+                                if (isDocConnected) {
+                                    TallyEmeraldGreen.copy(alpha = 0.4f)
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                                },
+                                RoundedCornerShape(14.dp)
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showDocsSection = !showDocsSection }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("toggle_google_docs_section"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = null,
+                                    tint = if (isDocConnected) TallyEmeraldGreen else TallyCyanRefraction,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Google Docs",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (isDocConnected) {
+                                    Text(
+                                        text = if (strings.isBn) "✅ যুক্ত" else "✅ Connected",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TallyEmeraldGreen,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (isDocConnected) {
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                val docUrl = "https://docs.google.com/document/d/${settings.syncedGoogleDocId}/edit"
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(docUrl)))
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(TallyEmeraldGreen.copy(alpha = 0.18f))
+                                            .testTag("open_synced_google_doc_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                            contentDescription = if (strings.isBn) "ডক খুলুন" else "Open Doc",
+                                            tint = TallyEmeraldGreen,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = if (showDocsSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = showDocsSection,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (isDocConnected) {
+                                    val timeStr = if (settings.lastSyncedAtMillis > 0L) {
+                                        " • " + LocalizationProvider.formatTimestamp(
+                                            settings.lastSyncedAtMillis,
+                                            strings.isBn
+                                        )
+                                    } else {
+                                        ""
+                                    }
+                                    Text(
+                                        text = "ID: ${settings.syncedGoogleDocId}$timeStr",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = customDocInput,
+                                    onValueChange = { customDocInput = it },
+                                    label = {
+                                        Text(
+                                            if (strings.isBn) {
+                                                "Google Doc লিংক বা ID (নতুন তৈরির জন্য খালি রাখুন)"
+                                            } else {
+                                                "Google Doc URL or ID (Leave blank for new)"
+                                            }
+                                        )
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("google_doc_id_input"),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = TallyCyanRefraction,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    SpringyLiquidButton(
+                                        onClick = {
+                                            if (!isSyncingDocs) {
+                                                viewModel.performGoogleDocsSync(
+                                                    context = context,
+                                                    action = GoogleDocsSyncAction.PUSH_TO_DOCS,
+                                                    customDocIdInput = customDocInput,
+                                                    onNeedsConsent = { intentSender, action, docId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = docId
+                                                        googleDocsConsentLauncher.launch(
+                                                            IntentSenderRequest.Builder(intentSender).build()
+                                                        )
+                                                    },
+                                                    onNeedsSignInIntent = { signInIntent, action, docId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = docId
+                                                        googleSignInLauncher.launch(signInIntent)
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        accentColor = TallyCyanRefraction,
+                                        secondaryColor = Color(0xFF0077B6),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                        testTag = "push_google_docs_sync_button"
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Sync,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (strings.isBn) "Docs সিঙ্ক" else "Sync Docs",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    SpringyLiquidButton(
+                                        onClick = {
+                                            if (!isSyncingDocs) {
+                                                viewModel.performGoogleDocsSync(
+                                                    context = context,
+                                                    action = GoogleDocsSyncAction.PULL_FROM_DOCS,
+                                                    customDocIdInput = customDocInput,
+                                                    onNeedsConsent = { intentSender, action, docId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = docId
+                                                        googleDocsConsentLauncher.launch(
+                                                            IntentSenderRequest.Builder(intentSender).build()
+                                                        )
+                                                    },
+                                                    onNeedsSignInIntent = { signInIntent, action, docId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = docId
+                                                        googleSignInLauncher.launch(signInIntent)
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        accentColor = TallyEmeraldGreen,
+                                        secondaryColor = Color(0xFF007E33),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                        testTag = "pull_google_docs_sync_button"
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudSync,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (strings.isBn) "ডক রিস্টোর" else "Restore Doc",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Compact Clickable Google Sheets Row
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (isSheetConnected) {
+                                    TallyEmeraldGreen.copy(alpha = 0.10f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                }
+                            )
+                            .border(
+                                1.dp,
+                                if (isSheetConnected) {
+                                    TallyEmeraldGreen.copy(alpha = 0.4f)
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                                },
+                                RoundedCornerShape(14.dp)
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showSheetsSection = !showSheetsSection }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("toggle_google_sheets_section"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.TableChart,
+                                    contentDescription = null,
+                                    tint = TallyEmeraldGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Google Sheets",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (isSheetConnected) {
+                                    Text(
+                                        text = if (strings.isBn) "✅ যুক্ত" else "✅ Connected",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = TallyEmeraldGreen,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (isSheetConnected) {
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                val sheetUrl = "https://docs.google.com/spreadsheets/d/${settings.syncedGoogleSheetId}/edit"
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(sheetUrl)))
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(TallyEmeraldGreen.copy(alpha = 0.18f))
+                                            .testTag("open_synced_google_sheet_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                            contentDescription = if (strings.isBn) "শিট খুলুন" else "Open Sheet",
+                                            tint = TallyEmeraldGreen,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                                Icon(
+                                    imageVector = if (showSheetsSection) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = showSheetsSection,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (isSheetConnected) {
+                                    val timeStr = if (settings.lastSheetSyncedAtMillis > 0L) {
+                                        " • " + LocalizationProvider.formatTimestamp(
+                                            settings.lastSheetSyncedAtMillis,
+                                            strings.isBn
+                                        )
+                                    } else {
+                                        ""
+                                    }
+                                    Text(
+                                        text = "ID: ${settings.syncedGoogleSheetId}$timeStr",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                OutlinedTextField(
+                                    value = customSheetInput,
+                                    onValueChange = { customSheetInput = it },
+                                    label = {
+                                        Text(
+                                            if (strings.isBn) {
+                                                "Google Sheet লিংক বা ID (নতুন তৈরির জন্য খালি রাখুন)"
+                                            } else {
+                                                "Google Sheet URL or ID (Leave blank for new)"
+                                            }
+                                        )
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("google_sheet_id_input"),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = TallyEmeraldGreen,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    SpringyLiquidButton(
+                                        onClick = {
+                                            if (!isSyncingDocs) {
+                                                viewModel.performGoogleDocsSync(
+                                                    context = context,
+                                                    action = GoogleDocsSyncAction.PUSH_TO_SHEETS,
+                                                    customDocIdInput = customSheetInput,
+                                                    onNeedsConsent = { intentSender, action, sheetId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = sheetId
+                                                        googleDocsConsentLauncher.launch(
+                                                            IntentSenderRequest.Builder(intentSender).build()
+                                                        )
+                                                    },
+                                                    onNeedsSignInIntent = { signInIntent, action, sheetId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = sheetId
+                                                        googleSignInLauncher.launch(signInIntent)
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        accentColor = TallyEmeraldGreen,
+                                        secondaryColor = Color(0xFF007E33),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                        testTag = "push_google_sheets_sync_button"
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.TableChart,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (strings.isBn) "Sheets সিঙ্ক" else "Sync Sheets",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    SpringyLiquidButton(
+                                        onClick = {
+                                            if (!isSyncingDocs) {
+                                                viewModel.performGoogleDocsSync(
+                                                    context = context,
+                                                    action = GoogleDocsSyncAction.PULL_FROM_SHEETS,
+                                                    customDocIdInput = customSheetInput,
+                                                    onNeedsConsent = { intentSender, action, sheetId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = sheetId
+                                                        googleDocsConsentLauncher.launch(
+                                                            IntentSenderRequest.Builder(intentSender).build()
+                                                        )
+                                                    },
+                                                    onNeedsSignInIntent = { signInIntent, action, sheetId ->
+                                                        pendingSyncAction = action
+                                                        pendingCustomDocId = sheetId
+                                                        googleSignInLauncher.launch(signInIntent)
+                                                    }
+                                                )
+                                            }
+                                        },
+                                        accentColor = TallyCyanRefraction,
+                                        secondaryColor = Color(0xFF0077B6),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                        testTag = "pull_google_sheets_sync_button"
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudSync,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (strings.isBn) "শিট রিস্টোর" else "Restore Sheet",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Compact Account & 403 Fix Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         LiquidFilterChip(
-                            label = if (strings.isBn) "অ্যাকাউন্ট পরিবর্তন" else "Switch Account",
+                            label = signedInEmail ?: if (strings.isBn) "Google অ্যাকাউন্ট" else "Google Account",
                             selected = false,
                             onClick = {
                                 viewModel.switchGoogleAccountForDocsSync(
@@ -779,35 +784,42 @@ fun SettingsScreen(
                                 )
                             },
                             useDarkGlass = useDarkGlass,
-                            accentColor = TallyGoldAccent,
+                            accentColor = TallyCyanRefraction,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = TallyCyanRefraction
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
                             testTag = "switch_google_account_button"
+                        )
+
+                        LiquidFilterChip(
+                            label = if (strings.isBn) "403 অ্যাক্সেস" else "403 Fix",
+                            selected = showAccessErrorHelp,
+                            onClick = { showAccessErrorHelp = !showAccessErrorHelp },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyGoldAccent,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.HelpOutline,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = if (showAccessErrorHelp) Color.White else TallyGoldAccent
+                                )
+                            },
+                            testTag = "toggle_403_help_chip"
                         )
                     }
 
-                    // Expandable 403 Access Blocked Request Access via WhatsApp Section
-                    LiquidFilterChip(
-                        label = if (strings.isBn) {
-                            "Error 403: access_denied সমাধান (WhatsApp অ্যাক্সেস রিকোয়েস্ট)"
-                        } else {
-                            "How to fix Error 403: Request Access via WhatsApp (@RomanZayn)"
-                        },
-                        selected = showAccessErrorHelp,
-                        onClick = { showAccessErrorHelp = !showAccessErrorHelp },
-                        useDarkGlass = useDarkGlass,
-                        accentColor = TallyGoldAccent,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.HelpOutline,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (showAccessErrorHelp) Color.White else TallyGoldAccent
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        testTag = "toggle_403_help_chip"
-                    )
-
-                    if (showAccessErrorHelp) {
+                    AnimatedVisibility(
+                        visible = showAccessErrorHelp,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         val effectiveEmail = requestAccessEmail.trim().ifBlank {
                             if (strings.isBn) "[এখানে আপনার জিমেইল লিখুন]" else "[Enter your Gmail here]"
                         }
@@ -860,7 +872,6 @@ fun SettingsScreen(
                                 )
                             )
 
-                            // Automated Draft Message Preview Box
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -898,7 +909,6 @@ fun SettingsScreen(
                             ) {
                                 SpringyLiquidButton(
                                     onClick = {
-                                        // Automatically copy draft to clipboard as backup
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                         clipboard?.setPrimaryClip(
                                             ClipData.newPlainText("TK Pro Access Request", automatedDraftMessage)
@@ -908,7 +918,6 @@ fun SettingsScreen(
                                         val directUserUri = Uri.parse("https://wa.me/RomanZayn?text=$encodedText")
                                         var launched = false
 
-                                        // 1. Try opening wa.me/RomanZayn?text=... directly inside WhatsApp or WhatsApp Business
                                         for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
                                             if (!launched) {
                                                 try {
@@ -923,7 +932,6 @@ fun SettingsScreen(
                                             }
                                         }
 
-                                        // 2. Fallback to universal wa.me/RomanZayn?text=... handler
                                         if (!launched) {
                                             try {
                                                 val universalIntent = Intent(Intent.ACTION_VIEW, directUserUri).apply {

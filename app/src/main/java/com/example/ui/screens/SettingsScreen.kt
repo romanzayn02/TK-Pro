@@ -582,7 +582,9 @@ fun SettingsScreen(
                     )
 
                     if (showAccessErrorHelp) {
-                        val effectiveEmail = requestAccessEmail.trim().ifBlank { "[Your Gmail Address]" }
+                        val effectiveEmail = requestAccessEmail.trim().ifBlank {
+                            if (strings.isBn) "[এখানে আপনার জিমেইল লিখুন]" else "[Enter your Gmail here]"
+                        }
                         val automatedDraftMessage = if (strings.isBn) {
                             "হ্যালো @RomanZayn,\nআমি TK Pro অ্যাপে Google Docs লাইভ সিঙ্ক ব্যবহার করতে চাই কিন্তু Error 403 (access_denied) দেখাচ্ছে।\nঅনুগ্রহ করে আমার জিমেইল অ্যাকাউন্টে অ্যাক্সেস দিন:\n📧 ইমেইল: $effectiveEmail"
                         } else {
@@ -601,10 +603,10 @@ fun SettingsScreen(
                             Text(
                                 text = if (strings.isBn) {
                                     "কেন অ্যাক্সেস ব্লক দেখায়?\n" +
-                                        "নিরাপত্তার জন্য শুধুমাত্র অনুমোদিত জিমেইল অ্যাকাউন্টগুলো Google Docs সিঙ্ক ব্যবহার করতে পারে। অ্যাক্সেস পেতে নিচে আপনার জিমেইল লিখুন এবং @RomanZayn-কে WhatsApp-এ অটোমেটিক রিকোয়েস্ট মেসেজ পাঠান।"
+                                        "নিরাপত্তার জন্য শুধুমাত্র অনুমোদিত জিমেইল অ্যাকাউন্টগুলো Google Docs সিঙ্ক ব্যবহার করতে পারে। অ্যাক্সেস পেতে নিচে আপনার জিমেইল লিখুন এবং নিচের বাটনে ট্যাপ করে সরাসরি @RomanZayn-কে WhatsApp মেসেজ পাঠান।"
                                 } else {
                                     "How to fix Error 403 (Access blocked):\n" +
-                                        "Google Docs sync requires developer approval for your Gmail account. Enter your Gmail below and tap the WhatsApp button to send an automated access request to @RomanZayn on WhatsApp."
+                                        "Google Docs sync requires developer approval for your Gmail account. Enter your Gmail below and tap the button to open @RomanZayn's chat on WhatsApp with the automated request message."
                                 },
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -670,32 +672,39 @@ fun SettingsScreen(
                             ) {
                                 SpringyLiquidButton(
                                     onClick = {
-                                        if (requestAccessEmail.trim().isBlank() || !requestAccessEmail.contains("@")) {
-                                            viewModel.showStatusMessage(
-                                                if (strings.isBn) {
-                                                    "⚠️ অনুগ্রহ করে প্রথমে আপনার জিমেইল অ্যাড্রেসটি লিখুন"
-                                                } else {
-                                                    "⚠️ Please enter your Gmail address first"
-                                                }
-                                            )
-                                        } else {
-                                            try {
-                                                val waUri = Uri.parse(
-                                                    "https://api.whatsapp.com/send?text=${Uri.encode(automatedDraftMessage)}"
-                                                )
-                                                val waIntent = Intent(Intent.ACTION_VIEW, waUri)
-                                                context.startActivity(waIntent)
-                                            } catch (_: Exception) {
+                                        // Automatically copy draft to clipboard as backup
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(
+                                            ClipData.newPlainText("TK Pro Access Request", automatedDraftMessage)
+                                        )
+
+                                        val encodedText = Uri.encode(automatedDraftMessage)
+                                        val directUserUri = Uri.parse("https://wa.me/RomanZayn?text=$encodedText")
+                                        var launched = false
+
+                                        // 1. Try opening wa.me/RomanZayn?text=... directly inside WhatsApp or WhatsApp Business
+                                        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+                                            if (!launched) {
                                                 try {
-                                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                                        type = "text/plain"
-                                                        putExtra(Intent.EXTRA_TEXT, automatedDraftMessage)
+                                                    val pkgIntent = Intent(Intent.ACTION_VIEW, directUserUri).apply {
+                                                        setPackage(pkg)
+                                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                     }
-                                                    context.startActivity(
-                                                        Intent.createChooser(sendIntent, "Send via WhatsApp")
-                                                    )
+                                                    context.startActivity(pkgIntent)
+                                                    launched = true
                                                 } catch (_: Exception) {
                                                 }
+                                            }
+                                        }
+
+                                        // 2. Fallback to universal wa.me/RomanZayn?text=... handler
+                                        if (!launched) {
+                                            try {
+                                                val universalIntent = Intent(Intent.ACTION_VIEW, directUserUri).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                }
+                                                context.startActivity(universalIntent)
+                                            } catch (_: Exception) {
                                             }
                                         }
                                     },

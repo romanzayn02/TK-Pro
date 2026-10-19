@@ -3,6 +3,9 @@ package com.example.ui
 import android.app.Application
 import android.content.Context
 import android.content.IntentSender
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
@@ -21,11 +24,13 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,13 +68,23 @@ data class LedgerUiState(
     val activeFilter: CustomerFilter = CustomerFilter.ALL,
     val currentTab: MainTab = MainTab.DASHBOARD,
     val statusBannerMessage: String? = null,
-    val isSyncingGoogleDocs: Boolean = false
-)
+    val isSyncingGoogleDocs: Boolean = false,
+    val isNetworkOnline: Boolean = true,
+    val isSyncFailedOfflineMode: Boolean = false
+) {
+    val isOfflineMode: Boolean
+        get() = !isNetworkOnline ||
+            isSyncFailedOfflineMode ||
+            ((settings.syncedGoogleDocId.isNotBlank() || settings.syncedGoogleSheetId.isNotBlank()) &&
+                (settings.hasPendingCloudSync || settings.lastSyncError.isNotBlank()))
+}
 
 class LedgerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getInstance(application)
     private val repository = LedgerRepository(database.ledgerDao(), application)
+    private val connectivityManager =
+        application.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
     private val _searchQuery = MutableStateFlow("")
     private val _activeFilter = MutableStateFlow(CustomerFilter.ALL)
@@ -77,7 +92,92 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedCustomerId = MutableStateFlow<Long?>(null)
     private val _statusBannerMessage = MutableStateFlow<String?>(null)
     private val _isSyncingGoogleDocs = MutableStateFlow(false)
+    private val _isNetworkOnline = MutableStateFlow(checkIsOnline())
+    private val _isSyncFailedOfflineMode = MutableStateFlow(false)
     val statusBannerMessage: StateFlow<String?> = _statusBannerMessage.asStateFlow()
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            _isNetworkOnline.value = true
+            viewModelScope.launch {
+                delay(700)
+                val latestSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+                val hasCloudTarget = latestSettings.syncedGoogleDocId.isNotBlank() ||
+                    latestSettings.syncedGoogleSheetId.isNotBlank()
+                if (hasCloudTarget && (latestSettings.hasPendingCloudSync || _isSyncFailedOfflineMode.value)) {
+                    triggerAutoSyncGoogleDocsIfConfigured(
+                        notifyOnOfflineRecovery = true,
+                        forceEvenIfAutoSyncOff = true
+                    )
+                }
+            }
+        }
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            val online = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val wasOffline = !_isNetworkOnline.value
+            _isNetworkOnline.value = online
+            if (online && wasOffline) {
+                viewModelScope.launch {
+                    delay(700)
+                    val latestSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+                    val hasCloudTarget = latestSettings.syncedGoogleDocId.isNotBlank() ||
+                        latestSettings.syncedGoogleSheetId.isNotBlank()
+                    if (hasCloudTarget && (latestSettings.hasPendingCloudSync || _isSyncFailedOfflineMode.value)) {
+                        triggerAutoSyncGoogleDocsIfConfigured(
+                            notifyOnOfflineRecovery = true,
+                            forceEvenIfAutoSyncOff = true
+                        )
+                    }
+                }
+            }
+        }
+
+        override fun onLost(network: Network) {
+            _isNetworkOnline.value = checkIsOnline()
+        }
+    }
+
+    init {
+        try {
+            connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+        }
+        viewModelScope.launch {
+            val initialSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+            val hasCloudTarget = initialSettings.syncedGoogleDocId.isNotBlank() ||
+                initialSettings.syncedGoogleSheetId.isNotBlank()
+            if (hasCloudTarget && initialSettings.hasPendingCloudSync) {
+                if (checkIsOnline()) {
+                    triggerAutoSyncGoogleDocsIfConfigured(
+                        notifyOnOfflineRecovery = true,
+                        forceEvenIfAutoSyncOff = true
+                    )
+                } else {
+                    _isSyncFailedOfflineMode.value = true
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            connectivityManager?.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun checkIsOnline(): Boolean {
+        return try {
+            val cm = connectivityManager ?: return true
+            val activeNetwork = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            true
+        }
+    }
 
     val uiState: StateFlow<LedgerUiState> = combine(
         repository.settingsFlow,
@@ -89,12 +189,19 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             _currentTab,
             _selectedCustomerId,
             _statusBannerMessage,
-            _isSyncingGoogleDocs
-        ) { f, t, s, msg, syncing ->
-            Quintuple(f, t, s, msg, syncing)
+            combine(
+                _isSyncingGoogleDocs,
+                _isNetworkOnline,
+                _isSyncFailedOfflineMode
+            ) { syncing, online, syncFailedOffline ->
+                Triple(syncing, online, syncFailedOffline)
+            }
+        ) { f, t, s, msg, syncTriple ->
+            Quintuple(f, t, s, msg, syncTriple)
         }
     ) { settings, customers, transactions, query, quint ->
-        val (filter, tab, selectedId, bannerMsg, syncing) = quint
+        val (filter, tab, selectedId, bannerMsg, syncTriple) = quint
+        val (syncing, online, syncFailedOffline) = syncTriple
 
         val txByCustomer = transactions.groupBy { it.customerId }
         val customerMap = customers.associateBy { it.id }
@@ -192,7 +299,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             activeFilter = filter,
             currentTab = tab,
             statusBannerMessage = bannerMsg,
-            isSyncingGoogleDocs = syncing
+            isSyncingGoogleDocs = syncing,
+            isNetworkOnline = online,
+            isSyncFailedOfflineMode = syncFailedOffline
         )
     }.stateIn(
         scope = viewModelScope,
@@ -553,11 +662,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
             is GoogleDocsAuthOutcome.Error -> {
                 _isSyncingGoogleDocs.value = false
+                _isSyncFailedOfflineMode.value = true
                 val isBn = uiState.value.settings.language != "EN"
+                repository.setPendingCloudSync(true, authOutcome.message)
                 _statusBannerMessage.value = if (isBn) {
-                    "❌ Google সাইন-ইন ত্রুটি: ${authOutcome.message}"
+                    "📴 অফলাইন মোড (সিঙ্ক ব্যর্থ): ${authOutcome.message}"
                 } else {
-                    "❌ Google Sign-In error: ${authOutcome.message}"
+                    "📴 Offline Mode (Sync failed): ${authOutcome.message}"
                 }
             }
         }
@@ -568,7 +679,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         action: GoogleDocsSyncAction,
         customDocIdInput: String?
     ) {
-        val currentSettings = uiState.value.settings
+        val currentSettings = repository.settingsFlow.first()
         val isBn = currentSettings.language != "EN"
 
         when (action) {
@@ -589,6 +700,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 _isSyncingGoogleDocs.value = false
                 result.onSuccess { syncRes ->
+                    _isSyncFailedOfflineMode.value = false
                     repository.updateGoogleDocsSyncInfo(
                         docId = syncRes.documentId,
                         syncedAtMillis = syncRes.syncedAtMillis
@@ -599,10 +711,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         "✅ Live synced to Google Docs!"
                     }
                 }.onFailure { err ->
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, err.localizedMessage ?: "Doc sync failed")
                     _statusBannerMessage.value = if (isBn) {
-                        "❌ Google Docs সিঙ্ক ব্যর্থ: ${err.localizedMessage}"
+                        "📴 অফলাইন মোড — Google Docs সিঙ্ক ব্যর্থ: ${err.localizedMessage}"
                     } else {
-                        "❌ Google Docs sync failed: ${err.localizedMessage}"
+                        "📴 Offline Mode — Google Docs sync failed: ${err.localizedMessage}"
                     }
                 }
             }
@@ -620,36 +734,54 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     return
                 }
+                val hadPendingOffline = currentSettings.hasPendingCloudSync
                 val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleDoc(
                     accessToken = accessToken,
                     documentId = resolvedDocId
                 )
                 pullRes.onSuccess { jsonPayload ->
                     val importRes = repository.importBackupJson(jsonPayload)
-                    _isSyncingGoogleDocs.value = false
                     importRes.onSuccess { (cCount, tCount) ->
+                        _isSyncFailedOfflineMode.value = false
                         repository.updateGoogleDocsSyncInfo(
                             docId = resolvedDocId,
                             syncedAtMillis = System.currentTimeMillis()
                         )
+                        // If there were offline transactions merged during restore, push the merged state back
+                        if (hadPendingOffline) {
+                            val mergedSettings = repository.settingsFlow.first()
+                            GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                                accessToken = accessToken,
+                                existingDocId = resolvedDocId,
+                                settings = mergedSettings,
+                                customers = repository.getAllCustomersSnapshot(),
+                                transactions = repository.getAllTransactionsSnapshot(),
+                                rawBackupJson = repository.exportBackupJson(mergedSettings)
+                            )
+                        }
+                        _isSyncingGoogleDocs.value = false
                         _statusBannerMessage.value = if (isBn) {
                             "✅ Google Docs থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন সিঙ্ক হয়েছে!"
                         } else {
                             "✅ Restored $cCount customers & $tCount transactions from Google Docs!"
                         }
                     }.onFailure { err ->
+                        _isSyncingGoogleDocs.value = false
+                        _isSyncFailedOfflineMode.value = true
                         _statusBannerMessage.value = if (isBn) {
-                            "❌ ডাটা পার্সিং ত্রুটি: ${err.localizedMessage}"
+                            "📴 অফলাইন মোড — ডাটা পার্সিং ত্রুটি: ${err.localizedMessage}"
                         } else {
-                            "❌ Data parse error: ${err.localizedMessage}"
+                            "📴 Offline Mode — Data parse error: ${err.localizedMessage}"
                         }
                     }
                 }.onFailure { err ->
                     _isSyncingGoogleDocs.value = false
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, err.localizedMessage ?: "Pull failed")
                     _statusBannerMessage.value = if (isBn) {
-                        "❌ Google Docs থেকে পড়া যায়নি: ${err.localizedMessage}"
+                        "📴 অফলাইন মোড — Google Docs থেকে পড়া যায়নি: ${err.localizedMessage}"
                     } else {
-                        "❌ Failed to pull from Google Docs: ${err.localizedMessage}"
+                        "📴 Offline Mode — Failed to pull from Google Docs: ${err.localizedMessage}"
                     }
                 }
             }
@@ -671,6 +803,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 _isSyncingGoogleDocs.value = false
                 result.onSuccess { syncRes ->
+                    _isSyncFailedOfflineMode.value = false
                     repository.updateGoogleSheetsSyncInfo(
                         sheetId = syncRes.documentId,
                         syncedAtMillis = syncRes.syncedAtMillis
@@ -681,10 +814,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         "✅ Live synced to Google Sheets!"
                     }
                 }.onFailure { err ->
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, err.localizedMessage ?: "Sheet sync failed")
                     _statusBannerMessage.value = if (isBn) {
-                        "❌ Google Sheets সিঙ্ক ব্যর্থ: ${err.localizedMessage}"
+                        "📴 অফলাইন মোড — Google Sheets সিঙ্ক ব্যর্থ: ${err.localizedMessage}"
                     } else {
-                        "❌ Google Sheets sync failed: ${err.localizedMessage}"
+                        "📴 Offline Mode — Google Sheets sync failed: ${err.localizedMessage}"
                     }
                 }
             }
@@ -702,61 +837,104 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     return
                 }
+                val hadPendingOffline = currentSettings.hasPendingCloudSync
                 val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleSheet(
                     accessToken = accessToken,
                     spreadsheetId = resolvedSheetId
                 )
                 pullRes.onSuccess { jsonPayload ->
                     val importRes = repository.importBackupJson(jsonPayload)
-                    _isSyncingGoogleDocs.value = false
                     importRes.onSuccess { (cCount, tCount) ->
+                        _isSyncFailedOfflineMode.value = false
                         repository.updateGoogleSheetsSyncInfo(
                             sheetId = resolvedSheetId,
                             syncedAtMillis = System.currentTimeMillis()
                         )
+                        if (hadPendingOffline) {
+                            val mergedSettings = repository.settingsFlow.first()
+                            GoogleDocsSyncService.syncLedgerToGoogleSheet(
+                                accessToken = accessToken,
+                                existingSheetId = resolvedSheetId,
+                                settings = mergedSettings,
+                                customers = repository.getAllCustomersSnapshot(),
+                                transactions = repository.getAllTransactionsSnapshot(),
+                                rawBackupJson = repository.exportBackupJson(mergedSettings)
+                            )
+                        }
+                        _isSyncingGoogleDocs.value = false
                         _statusBannerMessage.value = if (isBn) {
                             "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন সিঙ্ক হয়েছে!"
                         } else {
                             "✅ Restored $cCount customers & $tCount transactions from Google Sheets!"
                         }
                     }.onFailure { err ->
+                        _isSyncingGoogleDocs.value = false
+                        _isSyncFailedOfflineMode.value = true
                         _statusBannerMessage.value = if (isBn) {
-                            "❌ ডাটা পার্সিং ত্রুটি: ${err.localizedMessage}"
+                            "📴 অফলাইন মোড — ডাটা পার্সিং ত্রুটি: ${err.localizedMessage}"
                         } else {
-                            "❌ Data parse error: ${err.localizedMessage}"
+                            "📴 Offline Mode — Data parse error: ${err.localizedMessage}"
                         }
                     }
                 }.onFailure { err ->
                     _isSyncingGoogleDocs.value = false
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, err.localizedMessage ?: "Sheet pull failed")
                     _statusBannerMessage.value = if (isBn) {
-                        "❌ Google Sheets থেকে পড়া যায়নি: ${err.localizedMessage}"
+                        "📴 অফলাইন মোড — Google Sheets থেকে পড়া যায়নি: ${err.localizedMessage}"
                     } else {
-                        "❌ Failed to pull from Google Sheets: ${err.localizedMessage}"
+                        "📴 Offline Mode — Failed to pull from Google Sheets: ${err.localizedMessage}"
                     }
                 }
             }
         }
     }
 
-    private fun triggerAutoSyncGoogleDocsIfConfigured() {
-        val currentSettings = uiState.value.settings
-        val hasDoc = currentSettings.syncedGoogleDocId.isNotBlank()
-        val hasSheet = currentSettings.syncedGoogleSheetId.isNotBlank()
-        if (!currentSettings.autoSyncGoogleDocs || (!hasDoc && !hasSheet)) {
-            return
-        }
+    fun retryOfflineCloudSync() {
+        triggerAutoSyncGoogleDocsIfConfigured(
+            notifyOnOfflineRecovery = true,
+            forceEvenIfAutoSyncOff = true
+        )
+    }
+
+    private fun triggerAutoSyncGoogleDocsIfConfigured(
+        notifyOnOfflineRecovery: Boolean = false,
+        forceEvenIfAutoSyncOff: Boolean = false
+    ) {
         val appContext = getApplication<Application>()
         viewModelScope.launch {
+            val currentSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+            val hasDoc = currentSettings.syncedGoogleDocId.isNotBlank()
+            val hasSheet = currentSettings.syncedGoogleSheetId.isNotBlank()
+            if ((!currentSettings.autoSyncGoogleDocs && !forceEvenIfAutoSyncOff) || (!hasDoc && !hasSheet)) {
+                return@launch
+            }
+
+            val isBn = currentSettings.language != "EN"
+            if (!checkIsOnline()) {
+                _isNetworkOnline.value = false
+                _isSyncFailedOfflineMode.value = true
+                repository.setPendingCloudSync(
+                    pending = true,
+                    errorMessage = if (isBn) "ইন্টারনেট সংযোগ নেই (অফলাইন মোড)" else "No internet connection (Offline Mode)"
+                )
+                return@launch
+            }
+
+            _isSyncingGoogleDocs.value = true
             val authOutcome = GoogleDocsSyncService.authorizeGoogleDocs(appContext)
             if (authOutcome is GoogleDocsAuthOutcome.Authorized) {
                 val customers = repository.getAllCustomersSnapshot()
                 val transactions = repository.getAllTransactionsSnapshot()
-                val rawJson = repository.exportBackupJson(uiState.value.settings)
+                val rawJson = repository.exportBackupJson(currentSettings)
+                var allSucceeded = true
+                var failureReason = ""
+
                 if (hasDoc) {
                     val res = GoogleDocsSyncService.syncLedgerToGoogleDoc(
                         accessToken = authOutcome.accessToken,
                         existingDocId = currentSettings.syncedGoogleDocId,
-                        settings = uiState.value.settings,
+                        settings = currentSettings,
                         customers = customers,
                         transactions = transactions,
                         rawBackupJson = rawJson
@@ -766,13 +944,16 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             docId = syncRes.documentId,
                             syncedAtMillis = syncRes.syncedAtMillis
                         )
+                    }.onFailure { err ->
+                        allSucceeded = false
+                        failureReason = err.localizedMessage ?: "Google Docs sync failed"
                     }
                 }
                 if (hasSheet) {
                     val sheetRes = GoogleDocsSyncService.syncLedgerToGoogleSheet(
                         accessToken = authOutcome.accessToken,
                         existingSheetId = currentSettings.syncedGoogleSheetId,
-                        settings = uiState.value.settings,
+                        settings = currentSettings,
                         customers = customers,
                         transactions = transactions,
                         rawBackupJson = rawJson
@@ -782,8 +963,40 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             sheetId = syncRes.documentId,
                             syncedAtMillis = syncRes.syncedAtMillis
                         )
+                    }.onFailure { err ->
+                        allSucceeded = false
+                        failureReason = err.localizedMessage ?: "Google Sheets sync failed"
                     }
                 }
+
+                _isSyncingGoogleDocs.value = false
+                if (allSucceeded) {
+                    _isSyncFailedOfflineMode.value = false
+                    repository.setPendingCloudSync(false, "")
+                    if (notifyOnOfflineRecovery) {
+                        _statusBannerMessage.value = if (isBn) {
+                            "✅ অফলাইন লেনদেনগুলো Google ক্লাউডে সিঙ্ক হয়েছে!"
+                        } else {
+                            "✅ Offline transactions synced to Google Cloud!"
+                        }
+                    }
+                } else {
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, failureReason)
+                    if (notifyOnOfflineRecovery) {
+                        _statusBannerMessage.value = if (isBn) {
+                            "📴 অফলাইন মোড: সিঙ্ক ব্যর্থ ($failureReason)"
+                        } else {
+                            "📴 Offline Mode: Sync failed ($failureReason)"
+                        }
+                    }
+                }
+            } else {
+                _isSyncingGoogleDocs.value = false
+                _isSyncFailedOfflineMode.value = true
+                val errMsg = (authOutcome as? GoogleDocsAuthOutcome.Error)?.message
+                    ?: if (isBn) "ক্লাউড সিঙ্ক অনুমোদন প্রয়োজন" else "Cloud sync authorization required"
+                repository.setPendingCloudSync(true, errMsg)
             }
         }
     }

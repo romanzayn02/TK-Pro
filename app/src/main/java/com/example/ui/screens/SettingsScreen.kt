@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
@@ -288,6 +289,66 @@ fun SettingsScreen(
                                     checkedTrackColor = TallyEmeraldGreen
                                 ),
                                 modifier = Modifier.testTag("auto_sync_google_docs_switch")
+                            )
+                        }
+                    }
+
+                    // Offline Mode / Pending Cloud Sync pill inside Settings when sync fails or offline
+                    AnimatedVisibility(visible = uiState.isOfflineMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(TallyGoldAccent.copy(alpha = 0.14f))
+                                .border(1.dp, TallyGoldAccent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                .clickable { viewModel.retryOfflineCloudSync() }
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .testTag("settings_offline_mode_badge"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudOff,
+                                    contentDescription = null,
+                                    tint = TallyGoldAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = if (strings.isBn) {
+                                            "অফলাইন মোড (Offline Mode)"
+                                        } else {
+                                            "Offline Mode Active"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = TallyGoldAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (settings.lastSyncError.isNotBlank()) {
+                                            settings.lastSyncError
+                                        } else if (strings.isBn) {
+                                            "অফলাইনে করা লেনদেনগুলো ইন্টারনেট চালু হলে অটো-সিঙ্ক হবে (সিঙ্ক করতে ট্যাপ করুন)"
+                                        } else {
+                                            "Offline transactions are queued and will sync when online (Tap to retry)"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = if (strings.isBn) "পুনরায় সিঙ্ক" else "Retry Sync",
+                                tint = TallyGoldAccent,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

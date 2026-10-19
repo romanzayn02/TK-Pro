@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AddAPhoto
@@ -1296,7 +1297,7 @@ fun SmsReminderBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 SpringyLiquidButton(
                     onClick = {
@@ -1308,16 +1309,21 @@ fun SmsReminderBottomSheet(
                     },
                     accentColor = Color(0xFF3949AB),
                     secondaryColor = Color(0xFF1A237E),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(0.85f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
                     testTag = "copy_sms_button"
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(strings.copySmsAction, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (strings.isBn) "কপি" else "Copy",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 SpringyLiquidButton(
@@ -1335,19 +1341,84 @@ fun SmsReminderBottomSheet(
                         }
                         onDismiss()
                     },
-                    accentColor = TallyEmeraldGreen,
-                    secondaryColor = Color(0xFF007E33),
-                    modifier = Modifier.weight(1.2f),
+                    accentColor = TallyCyanRefraction,
+                    secondaryColor = Color(0xFF0077B6),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
                     testTag = "send_sms_intent_button"
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = strings.sendSmsAction,
+                        text = if (strings.isBn) "SMS" else "SMS",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                SpringyLiquidButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(customSmsText))
+                        val rawDigits = customerPhone.filter { it.isDigit() }
+                        val formattedWaPhone = when {
+                            rawDigits.length == 11 && rawDigits.startsWith("01") -> "88$rawDigits"
+                            rawDigits.startsWith("00") -> rawDigits.removePrefix("00")
+                            else -> rawDigits
+                        }
+                        val encodedMsg = Uri.encode(customSmsText)
+                        val waUri = if (formattedWaPhone.isNotBlank()) {
+                            Uri.parse("https://wa.me/$formattedWaPhone?text=$encodedMsg")
+                        } else {
+                            Uri.parse("https://wa.me/?text=$encodedMsg")
+                        }
+
+                        var launched = false
+                        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+                            if (!launched) {
+                                try {
+                                    val pkgIntent = Intent(Intent.ACTION_VIEW, waUri).apply {
+                                        setPackage(pkg)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(pkgIntent)
+                                    launched = true
+                                } catch (_: Exception) {
+                                }
+                            }
+                        }
+
+                        if (!launched) {
+                            try {
+                                val fallbackIntent = Intent(Intent.ACTION_VIEW, waUri).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(fallbackIntent)
+                            } catch (_: Exception) {
+                                onCopiedNotice(
+                                    if (strings.isBn) "✅ WhatsApp মেসেজ কপি হয়েছে" else "✅ Message copied for WhatsApp"
+                                )
+                            }
+                        }
+                        onDismiss()
+                    },
+                    accentColor = Color(0xFF25D366),
+                    secondaryColor = Color(0xFF128C7E),
+                    modifier = Modifier.weight(1.25f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                    testTag = "send_whatsapp_message_button"
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Chat,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "WhatsApp",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )

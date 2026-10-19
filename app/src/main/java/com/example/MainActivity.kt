@@ -235,6 +235,9 @@ fun TallyKhataProApp(
                                 onOpenSmsReminder = { customerWithBalance ->
                                     activeSmsCustomer = customerWithBalance
                                 },
+                                onRetryOfflineSync = {
+                                    viewModel.retryOfflineCloudSync()
+                                },
                                 onSearchingChanged = { searching ->
                                     isDashboardSearching = searching
                                 }

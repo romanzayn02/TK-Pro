@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,7 +35,9 @@ data class AppSettings(
     val syncedGoogleSheetId: String = "",
     val autoSyncGoogleDocs: Boolean = true,
     val lastSyncedAtMillis: Long = 0L,
-    val lastSheetSyncedAtMillis: Long = 0L
+    val lastSheetSyncedAtMillis: Long = 0L,
+    val hasPendingCloudSync: Boolean = false,
+    val lastSyncError: String = ""
 )
 
 class LedgerRepository(
@@ -54,6 +57,8 @@ class LedgerRepository(
         val AUTO_SYNC_GOOGLE_DOCS = booleanPreferencesKey("auto_sync_google_docs")
         val LAST_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_synced_at_millis")
         val LAST_SHEET_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_sheet_synced_at_millis")
+        val HAS_PENDING_CLOUD_SYNC = booleanPreferencesKey("has_pending_cloud_sync")
+        val LAST_SYNC_ERROR = stringPreferencesKey("last_sync_error")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -85,7 +90,9 @@ class LedgerRepository(
             syncedGoogleSheetId = prefs[Keys.SYNCED_GOOGLE_SHEET_ID] ?: "",
             autoSyncGoogleDocs = prefs[Keys.AUTO_SYNC_GOOGLE_DOCS] ?: true,
             lastSyncedAtMillis = prefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
-            lastSheetSyncedAtMillis = prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
+            lastSheetSyncedAtMillis = prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L,
+            hasPendingCloudSync = prefs[Keys.HAS_PENDING_CLOUD_SYNC] ?: false,
+            lastSyncError = prefs[Keys.LAST_SYNC_ERROR] ?: ""
         )
     }
 
@@ -109,7 +116,7 @@ class LedgerRepository(
         avatarColorHex: Long = 0xFF0091EA
     ): Long {
         val now = System.currentTimeMillis()
-        return dao.insertCustomer(
+        val id = dao.insertCustomer(
             CustomerEntity(
                 name = name.trim(),
                 phone = phone.trim(),
@@ -120,14 +127,18 @@ class LedgerRepository(
                 updatedAt = now
             )
         )
+        markPendingCloudSync()
+        return id
     }
 
     suspend fun updateCustomer(customer: CustomerEntity) {
         dao.updateCustomer(customer.copy(updatedAt = System.currentTimeMillis()))
+        markPendingCloudSync()
     }
 
     suspend fun deleteCustomer(customerId: Long) {
         dao.deleteCustomerById(customerId)
+        markPendingCloudSync()
     }
 
     suspend fun addTransaction(
@@ -157,6 +168,7 @@ class LedgerRepository(
         if (existing != null) {
             dao.updateCustomer(existing.copy(updatedAt = System.currentTimeMillis()))
         }
+        markPendingCloudSync()
         return txId
     }
 
@@ -188,10 +200,29 @@ class LedgerRepository(
         if (existing != null) {
             dao.updateCustomer(existing.copy(updatedAt = System.currentTimeMillis()))
         }
+        markPendingCloudSync()
     }
 
     suspend fun deleteTransaction(transactionId: Long) {
         dao.deleteTransactionById(transactionId)
+        markPendingCloudSync()
+    }
+
+    private suspend fun markPendingCloudSync() {
+        context.dataStore.edit { prefs ->
+            val hasDoc = !prefs[Keys.SYNCED_GOOGLE_DOC_ID].isNullOrBlank()
+            val hasSheet = !prefs[Keys.SYNCED_GOOGLE_SHEET_ID].isNullOrBlank()
+            if (hasDoc || hasSheet) {
+                prefs[Keys.HAS_PENDING_CLOUD_SYNC] = true
+            }
+        }
+    }
+
+    suspend fun setPendingCloudSync(pending: Boolean, errorMessage: String = "") {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.HAS_PENDING_CLOUD_SYNC] = pending
+            prefs[Keys.LAST_SYNC_ERROR] = errorMessage
+        }
     }
 
     suspend fun updateLanguage(lang: String) {
@@ -239,6 +270,8 @@ class LedgerRepository(
             prefs[Keys.SYNCED_GOOGLE_DOC_ID] = docId.trim()
             if (syncedAtMillis > 0L) {
                 prefs[Keys.LAST_SYNCED_AT_MILLIS] = syncedAtMillis
+                prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false
+                prefs[Keys.LAST_SYNC_ERROR] = ""
             }
         }
     }
@@ -248,6 +281,8 @@ class LedgerRepository(
             prefs[Keys.SYNCED_GOOGLE_SHEET_ID] = sheetId.trim()
             if (syncedAtMillis > 0L) {
                 prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] = syncedAtMillis
+                prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false
+                prefs[Keys.LAST_SYNC_ERROR] = ""
             }
         }
     }
@@ -385,6 +420,38 @@ class LedgerRepository(
             } ?: run {
                 context.dataStore.edit { prefs ->
                     prefs[Keys.IS_SETUP_COMPLETED] = true
+                }
+            }
+
+            // Preserve any unsynced local offline customers & transactions so they are never lost
+            val currentPrefs = context.dataStore.data.first()
+            val hasPendingOffline = currentPrefs[Keys.HAS_PENDING_CLOUD_SYNC] ?: false
+            val lastSyncMillis = maxOf(
+                currentPrefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
+                currentPrefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
+            )
+            if (hasPendingOffline) {
+                val localCustomers = dao.getAllCustomersSnapshot()
+                val localTransactions = dao.getAllTransactionsSnapshot()
+                val cloudCustomerIds = customers.map { it.id }.toMutableSet()
+                val cloudTxKeys = transactions.map {
+                    "${it.customerId}_${it.type}_${it.amount}_${it.timestamp}_${it.note}"
+                }.toMutableSet()
+                val cloudTxIds = transactions.map { it.id }.toMutableSet()
+
+                for (localCustomer in localCustomers) {
+                    if (localCustomer.id !in cloudCustomerIds && localCustomer.createdAt > lastSyncMillis) {
+                        customers.add(localCustomer)
+                        cloudCustomerIds.add(localCustomer.id)
+                    }
+                }
+                for (localTx in localTransactions) {
+                    val key = "${localTx.customerId}_${localTx.type}_${localTx.amount}_${localTx.timestamp}_${localTx.note}"
+                    if (key !in cloudTxKeys && (localTx.timestamp > lastSyncMillis || localTx.id !in cloudTxIds)) {
+                        val ensuredId = if (localTx.id in cloudTxIds) 0L else localTx.id
+                        transactions.add(localTx.copy(id = ensuredId))
+                        cloudTxKeys.add(key)
+                    }
                 }
             }
 

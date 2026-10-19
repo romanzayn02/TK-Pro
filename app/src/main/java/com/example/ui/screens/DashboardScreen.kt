@@ -14,6 +14,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,10 +40,12 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
@@ -98,6 +101,7 @@ fun DashboardScreen(
     onOpenAddCustomer: () -> Unit,
     onOpenQuickEntry: (String, Long?) -> Unit,
     onOpenSmsReminder: (CustomerWithBalance) -> Unit,
+    onRetryOfflineSync: () -> Unit = {},
     onSearchingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -185,6 +189,7 @@ fun DashboardScreen(
                             Column {
                                 val isGoogleConnected = uiState.settings.syncedGoogleDocId.isNotBlank() ||
                                     uiState.settings.syncedGoogleSheetId.isNotBlank()
+                                val isOfflineMode = uiState.isOfflineMode
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -198,7 +203,36 @@ fun DashboardScreen(
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    if (isGoogleConnected) {
+                                    if (isOfflineMode) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(TallyGoldAccent.copy(alpha = 0.18f))
+                                                .border(
+                                                    1.dp,
+                                                    TallyGoldAccent.copy(alpha = 0.55f),
+                                                    RoundedCornerShape(50)
+                                                )
+                                                .clickable { onRetryOfflineSync() }
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                .testTag("home_offline_mode_badge")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CloudOff,
+                                                contentDescription = null,
+                                                tint = TallyGoldAccent,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = if (strings.isBn) "অফলাইন মোড" else "Offline Mode",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = TallyGoldAccent,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    } else if (isGoogleConnected) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -247,6 +281,64 @@ fun DashboardScreen(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = TallyCyanRefraction
                             )
+                        }
+                    }
+
+                    // Compact Offline Mode / Pending Cloud Sync Banner when offline or sync failed
+                    AnimatedVisibility(visible = uiState.isOfflineMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(TallyGoldAccent.copy(alpha = 0.14f))
+                                .border(1.dp, TallyGoldAccent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                .clickable { onRetryOfflineSync() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .testTag("home_offline_sync_banner"),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudOff,
+                                    contentDescription = null,
+                                    tint = TallyGoldAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (strings.isBn) {
+                                        if (uiState.settings.hasPendingCloudSync) {
+                                            "অফলাইন মোড: লেনদেন ফোনে সেভ আছে, অনলাইনে এলে অটো-সিঙ্ক হবে"
+                                        } else {
+                                            "অফলাইন মোড চালু আছে (ক্লাউড সিঙ্ক বন্ধ)"
+                                        }
+                                    } else {
+                                        if (uiState.settings.hasPendingCloudSync) {
+                                            "Offline Mode: Entries saved locally & will auto-sync when online"
+                                        } else {
+                                            "Offline Mode active (Cloud sync unavailable)"
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            if (uiState.settings.syncedGoogleDocId.isNotBlank() ||
+                                uiState.settings.syncedGoogleSheetId.isNotBlank()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = if (strings.isBn) "পুনরায় সিঙ্ক" else "Retry Sync",
+                                    tint = TallyGoldAccent,
+                                    modifier = Modifier
+                                        .padding(start = 8.dp)
+                                        .size(18.dp)
+                                )
+                            }
                         }
                     }
 

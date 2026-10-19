@@ -1,0 +1,767 @@
+package com.example.ui.screens
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.example.data.CustomerWithBalance
+import com.example.ui.AppStrings
+import com.example.ui.CustomerFilter
+import com.example.ui.LedgerUiState
+import com.example.ui.LocalizationProvider
+import com.example.ui.components.LiquidFilterChip
+import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.SpringyLiquidButton
+import com.example.ui.theme.TallyCyanRefraction
+import com.example.ui.theme.TallyEmeraldGreen
+import com.example.ui.theme.TallyGoldAccent
+import com.example.ui.theme.TallyRubyRed
+import kotlin.math.abs
+
+@Composable
+fun DashboardScreen(
+    uiState: LedgerUiState,
+    strings: AppStrings,
+    onSearchQueryChange: (String) -> Unit,
+    onFilterChange: (CustomerFilter) -> Unit,
+    onOpenCustomerDetail: (Long) -> Unit,
+    onOpenAddCustomer: () -> Unit,
+    onOpenQuickEntry: (String, Long?) -> Unit,
+    onOpenSmsReminder: (CustomerWithBalance) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val useDarkGlass = uiState.settings.useDarkGlassTheme
+    val currency = uiState.settings.currencySymbol
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("dashboard_lazy_column"),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 12.dp,
+            bottom = 110.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. Hero Ledger Dashboard Card with Net Balance
+        item(key = "hero_ledger_summary") {
+            LiquidGlassCard(
+                useDarkGlass = useDarkGlass,
+                accentTint = TallyCyanRefraction,
+                cornerRadius = 24.dp,
+                testTag = "ledger_summary_hero_card",
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Business Brand Banner Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(TallyCyanRefraction.copy(alpha = 0.18f))
+                                    .border(
+                                        1.dp,
+                                        TallyCyanRefraction.copy(alpha = 0.5f),
+                                        RoundedCornerShape(14.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Storefront,
+                                    contentDescription = null,
+                                    tint = TallyCyanRefraction
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = uiState.settings.businessName.ifBlank { strings.appTitle },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = strings.appSubtitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Customer count badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(TallyCyanRefraction.copy(alpha = 0.15f))
+                                .border(1.dp, TallyCyanRefraction.copy(alpha = 0.45f), RoundedCornerShape(50))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            val cText = if (strings.isBn) {
+                                "${LocalizationProvider.toBengaliDigits(uiState.summary.customerCount.toString())} পার্টি"
+                            } else {
+                                "${uiState.summary.customerCount} Parties"
+                            }
+                            Text(
+                                text = cText,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = TallyCyanRefraction
+                            )
+                        }
+                    }
+
+                    // Two High-Contrast Overview Cards: মোট পাবেন (Receivable) & মোট দেবেন (Payable)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // মোট পাবেন (Total Receivable)
+                        LiquidGlassCard(
+                            useDarkGlass = useDarkGlass,
+                            accentTint = TallyRubyRed,
+                            cornerRadius = 20.dp,
+                            onClick = { onFilterChange(CustomerFilter.RECEIVABLE) },
+                            testTag = "card_total_receivable",
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(TallyRubyRed.copy(alpha = 0.25f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.TrendingUp,
+                                            contentDescription = null,
+                                            tint = TallyRubyRed,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = strings.totalReceivable,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = LocalizationProvider.formatAmount(
+                                        uiState.summary.totalReceivable,
+                                        currency,
+                                        strings.isBn
+                                    ),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TallyRubyRed
+                                )
+                            }
+                        }
+
+                        // মোট দেবেন (Total Payable)
+                        LiquidGlassCard(
+                            useDarkGlass = useDarkGlass,
+                            accentTint = TallyEmeraldGreen,
+                            cornerRadius = 20.dp,
+                            onClick = { onFilterChange(CustomerFilter.PAYABLE) },
+                            testTag = "card_total_payable",
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(TallyEmeraldGreen.copy(alpha = 0.25f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.TrendingDown,
+                                            contentDescription = null,
+                                            tint = TallyEmeraldGreen,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = strings.totalPayable,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    text = LocalizationProvider.formatAmount(
+                                        uiState.summary.totalPayable,
+                                        currency,
+                                        strings.isBn
+                                    ),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TallyEmeraldGreen
+                                )
+                            }
+                        }
+                    }
+
+                    // মোট ব্যালেন্স (Net Balance) Bar
+                    LiquidGlassCard(
+                        useDarkGlass = useDarkGlass,
+                        accentTint = TallyGoldAccent,
+                        cornerRadius = 18.dp,
+                        testTag = "card_net_balance",
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalanceWallet,
+                                    contentDescription = null,
+                                    tint = TallyGoldAccent
+                                )
+                                Column {
+                                    Text(
+                                        text = strings.netBalance,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    val netStatusText = when {
+                                        uiState.summary.netBalance > 0.001 ->
+                                            if (strings.isBn) "নিট পাওনা (Receivable)" else "Net Receivable"
+                                        uiState.summary.netBalance < -0.001 ->
+                                            if (strings.isBn) "নিট দেনা (Payable)" else "Net Payable"
+                                        else -> strings.settledBadge
+                                    }
+                                    Text(
+                                        text = netStatusText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            val netSign = when {
+                                uiState.summary.netBalance > 0.001 -> "+"
+                                uiState.summary.netBalance < -0.001 -> "-"
+                                else -> ""
+                            }
+                            Text(
+                                text = "$netSign${
+                                    LocalizationProvider.formatAmount(
+                                        uiState.summary.netBalance,
+                                        currency,
+                                        strings.isBn
+                                    )
+                                }",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.summary.netBalance >= 0) TallyGoldAccent else TallyRubyRed
+                            )
+                        }
+                    }
+
+                    // Quick Action Row: টাকা পাব / দিয়েছি (Debit) & টাকা দেব / পেয়েছি (Credit)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        SpringyLiquidButton(
+                            onClick = { onOpenQuickEntry("DEBIT", null) },
+                            accentColor = TallyRubyRed,
+                            secondaryColor = Color(0xFFB71C1C),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                            testTag = "quick_debit_entry_button"
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = strings.debitTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        SpringyLiquidButton(
+                            onClick = { onOpenQuickEntry("CREDIT", null) },
+                            accentColor = TallyEmeraldGreen,
+                            secondaryColor = Color(0xFF007E33),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                            testTag = "quick_credit_entry_button"
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = strings.creditTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Search Bar & Filter Chips
+        item(key = "search_and_filters") {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = uiState.searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text(strings.searchPlaceholder) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = TallyCyanRefraction
+                        )
+                    },
+                    trailingIcon = {
+                        if (uiState.searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = strings.cancelButton
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("customer_search_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TallyCyanRefraction,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LiquidFilterChip(
+                        label = strings.filterAll,
+                        selected = uiState.activeFilter == CustomerFilter.ALL,
+                        onClick = { onFilterChange(CustomerFilter.ALL) },
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyCyanRefraction,
+                        testTag = "filter_chip_all"
+                    )
+                    LiquidFilterChip(
+                        label = strings.filterReceivable,
+                        selected = uiState.activeFilter == CustomerFilter.RECEIVABLE,
+                        onClick = { onFilterChange(CustomerFilter.RECEIVABLE) },
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyRubyRed,
+                        testTag = "filter_chip_receivable"
+                    )
+                    LiquidFilterChip(
+                        label = strings.filterPayable,
+                        selected = uiState.activeFilter == CustomerFilter.PAYABLE,
+                        onClick = { onFilterChange(CustomerFilter.PAYABLE) },
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyEmeraldGreen,
+                        testTag = "filter_chip_payable"
+                    )
+                    LiquidFilterChip(
+                        label = strings.filterSupplier,
+                        selected = uiState.activeFilter == CustomerFilter.SUPPLIER,
+                        onClick = { onFilterChange(CustomerFilter.SUPPLIER) },
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyGoldAccent,
+                        testTag = "filter_chip_supplier"
+                    )
+                }
+            }
+        }
+
+        // 3. Empty State or Customer Ledger Cards
+        if (uiState.filteredCustomers.isEmpty()) {
+            item(key = "empty_customers") {
+                LiquidGlassCard(
+                    useDarkGlass = useDarkGlass,
+                    accentTint = TallyCyanRefraction,
+                    cornerRadius = 24.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = null,
+                            tint = TallyCyanRefraction,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = strings.noCustomersEmptyTitle,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = strings.noCustomersEmptyDesc,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        SpringyLiquidButton(
+                            onClick = onOpenAddCustomer,
+                            accentColor = TallyCyanRefraction,
+                            secondaryColor = Color(0xFF0077B6),
+                            testTag = "empty_state_add_customer_button"
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PersonAdd,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(strings.addCustomer, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            items(
+                items = uiState.filteredCustomers,
+                key = { it.customer.id }
+            ) { item ->
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn() + scaleIn(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                ) {
+                    CustomerLedgerRowCard(
+                        item = item,
+                        strings = strings,
+                        currency = currency,
+                        useDarkGlass = useDarkGlass,
+                        onCardClick = { onOpenCustomerDetail(item.customer.id) },
+                        onDirectCall = {
+                            if (item.customer.phone.isNotBlank()) {
+                                val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                                    data = Uri.parse("tel:${Uri.encode(item.customer.phone)}")
+                                }
+                                context.startActivity(dialIntent)
+                            }
+                        },
+                        onSmsReminder = { onOpenSmsReminder(item) },
+                        onQuickDebit = { onOpenQuickEntry("DEBIT", item.customer.id) },
+                        onQuickCredit = { onOpenQuickEntry("CREDIT", item.customer.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomerLedgerRowCard(
+    item: CustomerWithBalance,
+    strings: AppStrings,
+    currency: String,
+    useDarkGlass: Boolean,
+    onCardClick: () -> Unit,
+    onDirectCall: () -> Unit,
+    onSmsReminder: () -> Unit,
+    onQuickDebit: () -> Unit,
+    onQuickCredit: () -> Unit
+) {
+    val net = item.netBalance
+    val badgeColor = when {
+        net > 0.001 -> TallyRubyRed
+        net < -0.001 -> TallyEmeraldGreen
+        else -> TallyCyanRefraction
+    }
+    val badgeLabel = when {
+        net > 0.001 -> strings.receivableBadge
+        net < -0.001 -> strings.payableBadge
+        else -> strings.settledBadge
+    }
+
+    LiquidGlassCard(
+        useDarkGlass = useDarkGlass,
+        accentTint = badgeColor,
+        cornerRadius = 22.dp,
+        onClick = onCardClick,
+        testTag = "customer_card_${item.customer.id}",
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Initials Frosted Avatar
+                    val avatarColor = Color(item.customer.avatarColorHex)
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(avatarColor.copy(alpha = 0.24f))
+                            .border(1.5.dp, avatarColor, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = item.customer.name.trim().take(1).uppercase(),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = avatarColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = item.customer.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (item.customer.partyType == "SUPPLIER") {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(TallyGoldAccent.copy(alpha = 0.22f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = strings.partyTypeSupplier,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = TallyGoldAccent
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = item.customer.phone.ifBlank {
+                                if (strings.isBn) "নম্বর যুক্ত নেই" else "No phone"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Balance Pill
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = LocalizationProvider.formatAmount(abs(net), currency, strings.isBn),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeColor
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(badgeColor.copy(alpha = 0.2f))
+                            .border(1.dp, badgeColor.copy(alpha = 0.6f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = badgeColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            // Quick Actions Row inside Customer Card: Direct Dial, SMS Reminder, +Debit, +Credit
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconButton(
+                        onClick = onDirectCall,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(TallyEmeraldGreen.copy(alpha = 0.18f))
+                            .testTag("call_customer_button_${item.customer.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = strings.callDirect,
+                            tint = TallyEmeraldGreen,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onSmsReminder,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(TallyGoldAccent.copy(alpha = 0.18f))
+                            .testTag("sms_customer_button_${item.customer.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sms,
+                            contentDescription = strings.smsReminder,
+                            tint = TallyGoldAccent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LiquidFilterChip(
+                        label = "+ ${strings.debitShort}",
+                        selected = false,
+                        onClick = onQuickDebit,
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyRubyRed,
+                        testTag = "customer_quick_debit_${item.customer.id}"
+                    )
+                    LiquidFilterChip(
+                        label = "+ ${strings.creditShort}",
+                        selected = false,
+                        onClick = onQuickCredit,
+                        useDarkGlass = useDarkGlass,
+                        accentColor = TallyEmeraldGreen,
+                        testTag = "customer_quick_credit_${item.customer.id}"
+                    )
+                }
+            }
+        }
+    }
+}

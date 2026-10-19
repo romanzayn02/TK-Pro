@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">TK Pro</string>
+    <string name="app_subtitle_bn">ডিজিটাল হিসাব ও কাস্টমার খাতা</string>
+    <string name="app_subtitle_en">Digital Ledger &amp; Customer Khata</string>
+    <string name="total_receivable_bn">মোট পাবেন</string>
+    <string name="total_payable_bn">মোট দেবেন</string>
+    <string name="net_balance_bn">মোট ব্যালেন্স</string>
+    <string name="debit_label_bn">টাকা পাব / দিয়েছি</string>
+    <string name="credit_label_bn">টাকা দেব / পেয়েছি</string>
+    <string name="add_customer_bn">নতুন কাস্টমার যোগ করুন</string>
+    <string name="import_contact_bn">কন্টাক্ট থেকে নিন</string>
+    <string name="export_json_bn">JSON ব্যাকআপ এক্সপোর্ট</string>
+    <string name="import_json_bn">JSON ব্যাকআপ ইমপোর্ট</string>
+</resources>

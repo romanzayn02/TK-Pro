@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF0D1B2A" />
+                <item android:offset="0.5" android:color="#FF1B263B" />
+                <item android:offset="1.0" android:color="#FF0A3D62" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Subtle Liquid Glass ambient glow circles -->
+    <path
+        android:pathData="M24,24m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0"
+        android:fillColor="#2600E5FF" />
+    <path
+        android:pathData="M84,84m-32,0a32,32 0,1 1,64 0a32,32 0,1 1,-64 0"
+        android:fillColor="#26FF2A54" />
+</vector>

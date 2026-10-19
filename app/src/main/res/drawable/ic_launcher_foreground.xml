@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Frosted Glass Ledger Book Back Cover -->
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M34,26 C34,22.686 36.686,20 40,20 L74,20 C77.314,20 80,22.686 80,26 L80,82 C80,85.314 77.314,88 74,88 L40,88 C36.686,88 34,85.314 34,82 Z" />
+    <!-- Ledger Spine Accent in Ruby Red (Tallykhata inspired) -->
+    <path
+        android:fillColor="#FFFF2A54"
+        android:pathData="M30,26 C30,22.686 32.686,20 36,20 L41,20 L41,88 L36,88 C32.686,88 30,85.314 30,82 Z" />
+    <!-- Main Ledger Cover with High-Contrast Glass Border -->
+    <path
+        android:fillColor="#E6FFFFFF"
+        android:pathData="M41,20 L72,20 C75.314,20 78,22.686 78,26 L78,82 C78,85.314 75.314,88 72,88 L41,88 Z" />
+    <!-- Emerald Green Receivable Upward Badge -->
+    <path
+        android:fillColor="#FF00C853"
+        android:pathData="M58,32 m-12,0 a12,12 0,1,1 24,0 a12,12 0,1,1 -24,0" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M58,25 L64,31 L60.5,31 L60.5,38 L55.5,38 L55.5,31 L52,31 Z" />
+    <!-- Ledger Entry Lines -->
+    <path
+        android:fillColor="#FF1B263B"
+        android:pathData="M47,52 L69,52 C70.1,52 71,52.9 71,54 C71,55.1 70.1,56 69,56 L47,56 C45.9,56 45,55.1 45,54 C45,52.9 45.9,52 47,52 Z" />
+    <path
+        android:fillColor="#FF00B0FF"
+        android:pathData="M47,62 L63,62 C64.1,62 65,62.9 65,64 C65,65.1 64.1,66 63,66 L47,66 C45.9,66 45,65.1 45,64 C45,62.9 45.9,62 47,62 Z" />
+    <path
+        android:fillColor="#FFFF2A54"
+        android:pathData="M47,72 L58,72 C59.1,72 60,72.9 60,74 C60,75.1 59.1,76 58,76 L47,76 C45.9,76 45,75.1 45,74 C45,72.9 45.9,72 47,72 Z" />
+</vector>

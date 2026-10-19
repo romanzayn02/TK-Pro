@@ -1,0 +1,6 @@
+{
+  "name": "TK Pro",
+  "description": "Offline-first digital ledger (হিসাব খাতা) inspired by Tallykhata with Material 3 Expressive design, Bengali/English localization, Google Docs live sync, receipt attachments, and JSON backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

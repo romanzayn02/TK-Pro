@@ -63,10 +63,64 @@ import androidx.core.content.FileProvider
 import java.io.File
 import kotlin.math.abs
 
+private fun sendDirectWhatsAppMessage(
+    context: android.content.Context,
+    customerPhone: String?,
+    messageText: String,
+    chooserTitle: String
+) {
+    val rawDigits = customerPhone?.filter { it.isDigit() }.orEmpty()
+    val formattedWaPhone = when {
+        rawDigits.length == 11 && rawDigits.startsWith("01") -> "88$rawDigits"
+        rawDigits.startsWith("00") -> rawDigits.removePrefix("00")
+        else -> rawDigits
+    }
+    val encodedMsg = Uri.encode(messageText)
+    val waUri = if (formattedWaPhone.isNotBlank()) {
+        Uri.parse("https://wa.me/$formattedWaPhone?text=$encodedMsg")
+    } else {
+        Uri.parse("https://wa.me/?text=$encodedMsg")
+    }
+
+    var launched = false
+    for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+        if (!launched) {
+            try {
+                val pkgIntent = Intent(Intent.ACTION_VIEW, waUri).apply {
+                    setPackage(pkg)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(pkgIntent)
+                launched = true
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    if (!launched) {
+        try {
+            val fallbackIntent = Intent(Intent.ACTION_VIEW, waUri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallbackIntent)
+        } catch (_: Exception) {
+            try {
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, messageText)
+                }
+                context.startActivity(Intent.createChooser(sendIntent, chooserTitle))
+            } catch (_: Exception) {
+            }
+        }
+    }
+}
+
 private fun shareSingleTransaction(
     context: android.content.Context,
     transaction: TransactionEntity,
     customerName: String?,
+    customerPhone: String?,
     balanceAfterTransaction: Double?,
     currency: String,
     strings: AppStrings
@@ -135,37 +189,12 @@ private fun shareSingleTransaction(
         }
     }
 
-    try {
-        val receiptPath = transaction.receiptUri
-        val receiptFile = if (!receiptPath.isNullOrBlank() && receiptPath.startsWith("/")) {
-            File(receiptPath).takeIf { it.exists() }
-        } else {
-            null
-        }
-
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            putExtra(Intent.EXTRA_TEXT, shareText)
-            if (receiptFile != null) {
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    receiptFile
-                )
-                putExtra(Intent.EXTRA_STREAM, uri)
-                type = "image/*"
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } else {
-                type = "text/plain"
-            }
-        }
-        context.startActivity(
-            Intent.createChooser(
-                sendIntent,
-                if (strings.isBn) "লেনদেন শেয়ার করুন" else "Share Transaction"
-            )
-        )
-    } catch (_: Exception) {
-    }
+    sendDirectWhatsAppMessage(
+        context = context,
+        customerPhone = customerPhone,
+        messageText = shareText,
+        chooserTitle = if (strings.isBn) "লেনদেন শেয়ার করুন" else "Share Transaction"
+    )
 }
 
 private fun shareCustomerLedgerStatement(
@@ -215,19 +244,12 @@ private fun shareCustomerLedgerStatement(
         }
     }
 
-    try {
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, statementText)
-        }
-        context.startActivity(
-            Intent.createChooser(
-                sendIntent,
-                if (strings.isBn) "হিসাব বিবরণী শেয়ার করুন" else "Share Ledger Statement"
-            )
-        )
-    } catch (_: Exception) {
-    }
+    sendDirectWhatsAppMessage(
+        context = context,
+        customerPhone = customer.phone,
+        messageText = statementText,
+        chooserTitle = if (strings.isBn) "হিসাব বিবরণী শেয়ার করুন" else "Share Ledger Statement"
+    )
 }
 
 @Composable
@@ -533,6 +555,7 @@ fun CustomerDetailScreen(
                     TransactionItemGlassCard(
                         transaction = tx,
                         customerName = customer.name,
+                        customerPhone = customer.phone,
                         showCustomerNameTitle = false,
                         balanceAfterTransaction = balanceAfter,
                         strings = strings,
@@ -730,6 +753,7 @@ fun TransactionHistoryScreen(
                 TransactionItemGlassCard(
                     transaction = item.transaction,
                     customerName = item.customerName,
+                    customerPhone = item.customerPhone,
                     balanceAfterTransaction = balanceAfter,
                     strings = strings,
                     currency = currency,
@@ -748,6 +772,7 @@ fun TransactionHistoryScreen(
 fun TransactionItemGlassCard(
     transaction: TransactionEntity,
     customerName: String?,
+    customerPhone: String? = null,
     showCustomerNameTitle: Boolean = true,
     balanceAfterTransaction: Double? = null,
     strings: AppStrings,
@@ -964,6 +989,7 @@ fun TransactionItemGlassCard(
                                 context = context,
                                 transaction = transaction,
                                 customerName = customerName,
+                                customerPhone = customerPhone,
                                 balanceAfterTransaction = balanceAfterTransaction,
                                 currency = currency,
                                 strings = strings
@@ -975,8 +1001,8 @@ fun TransactionItemGlassCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = if (strings.isBn) "শেয়ার করুন" else "Share",
-                            tint = TallyEmeraldGreen,
+                            contentDescription = if (strings.isBn) "হোয়াটসঅ্যাপে শেয়ার করুন" else "Share on WhatsApp",
+                            tint = Color(0xFF25D366),
                             modifier = Modifier.size(18.dp)
                         )
                     }

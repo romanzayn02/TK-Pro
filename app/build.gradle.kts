@@ -1,5 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
+System.setProperty("java.awt.headless", "true")
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)

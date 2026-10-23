@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -576,6 +577,7 @@ fun CustomerDetailScreen(
             cornerRadius = 24.dp,
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
@@ -697,7 +699,7 @@ fun TransactionHistoryScreen(
             start = 16.dp,
             end = 16.dp,
             top = 12.dp,
-            bottom = 110.dp
+            bottom = 140.dp
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

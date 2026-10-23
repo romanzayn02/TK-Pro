@@ -102,6 +102,7 @@ fun DashboardScreen(
     onOpenQuickEntry: (String, Long?) -> Unit,
     onOpenSmsReminder: (CustomerWithBalance) -> Unit,
     onRetryOfflineSync: () -> Unit = {},
+    onOpenWelcomeSetup: () -> Unit = {},
     onSearchingChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -131,7 +132,7 @@ fun DashboardScreen(
             start = 16.dp,
             end = 16.dp,
             top = 12.dp,
-            bottom = if (isSearching) 24.dp else 110.dp
+            bottom = if (isSearching) 48.dp else 140.dp
         ),
         verticalArrangement = Arrangement.spacedBy(if (isSearching) 10.dp else 14.dp)
     ) {
@@ -714,19 +715,44 @@ fun DashboardScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        SpringyLiquidButton(
-                            onClick = onOpenAddCustomer,
-                            accentColor = TallyCyanRefraction,
-                            secondaryColor = Color(0xFF0077B6),
-                            testTag = "empty_state_add_customer_button"
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PersonAdd,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(strings.addCustomer, fontWeight = FontWeight.Bold)
+                            SpringyLiquidButton(
+                                onClick = onOpenAddCustomer,
+                                accentColor = TallyCyanRefraction,
+                                secondaryColor = Color(0xFF0077B6),
+                                testTag = "empty_state_add_customer_button"
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PersonAdd,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(strings.addCustomer, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (uiState.settings.businessName.isBlank()) {
+                                SpringyLiquidButton(
+                                    onClick = onOpenWelcomeSetup,
+                                    accentColor = TallyEmeraldGreen,
+                                    secondaryColor = Color(0xFF007E33),
+                                    testTag = "empty_state_open_welcome_setup_button"
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Storefront,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (strings.isBn) "ব্যবসা সেটআপ" else "Setup Shop",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

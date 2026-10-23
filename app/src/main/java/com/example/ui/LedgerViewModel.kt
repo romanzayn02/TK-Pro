@@ -318,6 +318,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun selectTab(tab: MainTab) {
+        _selectedCustomerId.value = null
         _currentTab.value = tab
     }
 

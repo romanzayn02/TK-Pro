@@ -42,10 +42,14 @@ class ExampleRobolectricTest {
     @Test
     fun `read app name and Bengali ledger strings from context`() {
         val appName = context.getString(R.string.app_name)
-        assertEquals("TallyKhata Pro", appName)
+        assertEquals("TK Pro", appName)
         assertEquals("মোট পাবেন", context.getString(R.string.total_receivable_bn))
         assertEquals("মোট দেবেন", context.getString(R.string.total_payable_bn))
         assertEquals("মোট ব্যালেন্স", context.getString(R.string.net_balance_bn))
+        val bnStrings = LocalizationProvider.getStrings("BN")
+        assertEquals("খাতা", bnStrings.tabDashboard)
+        assertEquals("ইতিহাস", bnStrings.tabHistory)
+        assertEquals("সেটিংস", bnStrings.tabSettings)
     }
 
     @Test

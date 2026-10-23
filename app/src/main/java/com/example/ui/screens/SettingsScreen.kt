@@ -50,13 +50,17 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TableChart
 import com.example.data.GoogleDocsSyncService
+import com.example.ui.BiometricAuthHelper
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,6 +104,7 @@ fun SettingsScreen(
     settings: AppSettings,
     strings: AppStrings,
     viewModel: LedgerViewModel,
+    onLockAppNow: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1163,11 +1168,154 @@ fun SettingsScreen(
             }
         }
 
-        // 2. Business Branding & Currency Customization (৳ default)
-        item(key = "business_branding_card") {
+        // 1.5 Biometric Login & App Lock Card
+        item(key = "biometric_login_card") {
+            val biometricCredentialLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                if (result.resultCode == Activity.RESULT_OK) {
+                    viewModel.setBiometricLockEnabled(true)
+                }
+            }
+
             LiquidGlassCard(
                 useDarkGlass = useDarkGlass,
-                accentTint = TallyEmeraldGreen,
+                accentTint = TallyCyanRefraction,
+                cornerRadius = 24.dp,
+                testTag = "biometric_login_card",
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(TallyCyanRefraction.copy(alpha = 0.18f))
+                                    .border(1.dp, TallyCyanRefraction.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = null,
+                                    tint = TallyCyanRefraction,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = if (strings.isBn) {
+                                        "বায়োমেট্রিক লগইন (Biometric Lock)"
+                                    } else {
+                                        "Biometric Login & App Lock"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (strings.isBn) {
+                                        "ফিঙ্গারপ্রিন্ট, ফেস আনলক বা ফোনের পিন দিয়ে হিসাব নিরাপদ রাখুন"
+                                    } else {
+                                        "Protect your ledger with Fingerprint, Face Unlock, or device PIN"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = settings.biometricLockEnabled,
+                            onCheckedChange = { shouldEnable ->
+                                if (shouldEnable) {
+                                    BiometricAuthHelper.authenticate(
+                                        context = context,
+                                        isBn = strings.isBn,
+                                        onSuccess = {
+                                            viewModel.setBiometricLockEnabled(true)
+                                        },
+                                        onError = { err ->
+                                            if (err.isNotBlank()) {
+                                                viewModel.showStatusMessage(err)
+                                            }
+                                        },
+                                        onLaunchKeyguardCredentialIntent = { intent ->
+                                            biometricCredentialLauncher.launch(intent)
+                                        }
+                                    )
+                                } else {
+                                    viewModel.setBiometricLockEnabled(false)
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = TallyEmeraldGreen
+                            ),
+                            modifier = Modifier.testTag("biometric_login_switch")
+                        )
+                    }
+
+                    AnimatedVisibility(visible = settings.biometricLockEnabled) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (strings.isBn) {
+                                    "✅ অ্যাপ চালুর সময় বায়োমেট্রিক লগইন সক্রিয় আছে"
+                                } else {
+                                    "✅ Biometric unlock required on app launch"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TallyEmeraldGreen,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            LiquidFilterChip(
+                                label = if (strings.isBn) "এখনই লক করুন" else "Lock Now",
+                                selected = false,
+                                onClick = onLockAppNow,
+                                useDarkGlass = useDarkGlass,
+                                accentColor = TallyCyanRefraction,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = TallyCyanRefraction
+                                    )
+                                },
+                                testTag = "lock_app_now_button"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Profile / Business Branding, Account Mode (Business vs Individual) & Currency Customization
+        item(key = "business_branding_card") {
+            val isIndividual = settings.accountType.equals("INDIVIDUAL", ignoreCase = true)
+
+            LiquidGlassCard(
+                useDarkGlass = useDarkGlass,
+                accentTint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
                 cornerRadius = 24.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -1182,14 +1330,44 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Storefront,
+                            imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
                             contentDescription = null,
-                            tint = TallyEmeraldGreen
+                            tint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen
                         )
                         Text(
                             text = strings.businessBrandingTitle,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Account Mode Selector: Business vs Individual
+                    Text(
+                        text = if (strings.isBn) "অ্যাকাউন্টের ধরন (Account Mode)" else "Account Type (Mode)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LiquidFilterChip(
+                            label = if (strings.isBn) "🏪 ব্যবসা (Business)" else "🏪 Business",
+                            selected = !isIndividual,
+                            onClick = { viewModel.setAccountType("BUSINESS") },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyEmeraldGreen,
+                            modifier = Modifier.weight(1f),
+                            testTag = "settings_account_type_business_chip"
+                        )
+                        LiquidFilterChip(
+                            label = if (strings.isBn) "👤 ব্যক্তিগত (Individual)" else "👤 Individual",
+                            selected = isIndividual,
+                            onClick = { viewModel.setAccountType("INDIVIDUAL") },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyCyanRefraction,
+                            modifier = Modifier.weight(1f),
+                            testTag = "settings_account_type_individual_chip"
                         )
                     }
 
@@ -1203,7 +1381,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("settings_business_name_input"),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TallyEmeraldGreen,
+                            focusedBorderColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
@@ -1218,7 +1396,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .testTag("settings_owner_phone_input"),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = TallyEmeraldGreen,
+                            focusedBorderColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
@@ -1260,11 +1438,12 @@ fun SettingsScreen(
                             viewModel.updateBusinessSettings(
                                 businessName = businessName,
                                 ownerPhone = ownerPhone,
-                                currencySymbol = currencySymbol
+                                currencySymbol = currencySymbol,
+                                accountType = settings.accountType
                             )
                         },
-                        accentColor = TallyEmeraldGreen,
-                        secondaryColor = Color(0xFF007E33),
+                        accentColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                        secondaryColor = if (isIndividual) Color(0xFF0077B6) else Color(0xFF007E33),
                         modifier = Modifier.fillMaxWidth(),
                         testTag = "save_branding_button"
                     ) {

@@ -136,7 +136,10 @@ fun TallyKhataProApp(
     viewModel: LedgerViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val strings = LocalizationProvider.getStrings(uiState.settings.language)
+    val strings = LocalizationProvider.getStrings(
+        lang = uiState.settings.language,
+        accountType = uiState.settings.accountType
+    )
     val useDarkGlass = uiState.settings.useDarkGlassTheme
 
     var showAddCustomerSheet by remember { mutableStateOf(false) }
@@ -146,13 +149,22 @@ fun TallyKhataProApp(
     var viewingReceiptPath by remember { mutableStateOf<String?>(null) }
     var isDashboardSearching by remember { mutableStateOf(false) }
     var manualWelcomeStartStep by remember { mutableStateOf<Int?>(null) }
+    var isBiometricUnlocked by remember { mutableStateOf(false) }
+
+    val showWelcomeDialog = manualWelcomeStartStep != null ||
+        (uiState.settings.isSettingsLoaded && !uiState.settings.isSetupCompleted && uiState.customersWithBalance.isEmpty())
+
+    val showBiometricLock = uiState.settings.isSettingsLoaded &&
+        uiState.settings.biometricLockEnabled &&
+        !isBiometricUnlocked &&
+        !showWelcomeDialog
 
     val hideBarsForSearch = isDashboardSearching &&
         uiState.currentTab == MainTab.DASHBOARD &&
         uiState.selectedCustomerDetail == null
 
     androidx.activity.compose.BackHandler(
-        enabled = uiState.selectedCustomerDetail == null && uiState.currentTab != MainTab.DASHBOARD
+        enabled = !showWelcomeDialog && !showBiometricLock && uiState.selectedCustomerDetail == null && uiState.currentTab != MainTab.DASHBOARD
     ) {
         viewModel.selectTab(MainTab.DASHBOARD)
     }
@@ -166,141 +178,20 @@ fun TallyKhataProApp(
     }
 
     LiquidGlassBackdrop(useDarkGlass = useDarkGlass) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onBackground,
-            contentWindowInsets = WindowInsets.statusBars,
-            topBar = {
-                AnimatedVisibility(
-                    visible = !hideBarsForSearch,
-                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                        expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
-                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
-                        shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
-                ) {
-                    TopLiquidAppBar(
-                        appTitle = strings.appTitle,
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                showBiometricLock -> {
+                    com.example.ui.BiometricLockScreen(
+                        isBn = strings.isBn,
+                        isIndividual = strings.isIndividual,
                         useDarkGlass = useDarkGlass,
-                        isSettingsSelected = uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS,
-                        onSettingsClick = {
-                            if (uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS) {
-                                viewModel.selectTab(MainTab.DASHBOARD)
-                            } else {
-                                viewModel.selectTab(MainTab.SETTINGS)
-                            }
-                        },
-                        settingsLabel = strings.tabSettings
+                        profileName = uiState.settings.businessName.ifBlank { strings.appTitle },
+                        currencySymbol = uiState.settings.currencySymbol,
+                        onUnlocked = { isBiometricUnlocked = true }
                     )
                 }
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                AnimatedContent(
-                    targetState = Pair(uiState.selectedCustomerDetail, uiState.currentTab),
-                    transitionSpec = {
-                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                            scaleIn(
-                                initialScale = 0.96f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )).togetherWith(
-                            fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
-                                scaleOut(targetScale = 0.96f)
-                        )
-                    },
-                    label = "screen_transition"
-                ) { (selectedDetail, currentTab) ->
-                    if (selectedDetail != null) {
-                        CustomerDetailScreen(
-                            customerDetail = selectedDetail,
-                            transactions = uiState.selectedCustomerTransactions,
-                            strings = strings,
-                            currency = uiState.settings.currencySymbol,
-                            useDarkGlass = useDarkGlass,
-                            onBack = { viewModel.closeCustomerDetail() },
-                            onAddDebit = {
-                                activeTxSheetConfig = "DEBIT" to selectedDetail.customer.id
-                            },
-                            onAddCredit = {
-                                activeTxSheetConfig = "CREDIT" to selectedDetail.customer.id
-                            },
-                            onOpenSmsReminder = {
-                                activeSmsCustomer = selectedDetail
-                            },
-                            onViewReceipt = { path ->
-                                viewingReceiptPath = path
-                            },
-                            onEditTransaction = { tx ->
-                                editingTransaction = tx
-                            },
-                            onDeleteTransaction = { txId ->
-                                viewModel.deleteTransaction(txId)
-                            },
-                            onDeleteCustomer = {
-                                viewModel.deleteCustomer(selectedDetail.customer.id)
-                            }
-                        )
-                    } else {
-                        when (currentTab) {
-                            MainTab.DASHBOARD -> DashboardScreen(
-                                uiState = uiState,
-                                strings = strings,
-                                onSearchQueryChange = { viewModel.setSearchQuery(it) },
-                                onFilterChange = { viewModel.setCustomerFilter(it) },
-                                onOpenCustomerDetail = { viewModel.openCustomerDetail(it) },
-                                onOpenAddCustomer = { showAddCustomerSheet = true },
-                                onOpenQuickEntry = { type, customerId ->
-                                    if (uiState.customersWithBalance.isEmpty()) {
-                                        showAddCustomerSheet = true
-                                    } else {
-                                        activeTxSheetConfig = type to customerId
-                                    }
-                                },
-                                onOpenSmsReminder = { customerWithBalance ->
-                                    activeSmsCustomer = customerWithBalance
-                                },
-                                onRetryOfflineSync = {
-                                    viewModel.retryOfflineCloudSync()
-                                },
-                                onOpenWelcomeSetup = {
-                                    manualWelcomeStartStep = 1
-                                },
-                                onSearchingChanged = { searching ->
-                                    isDashboardSearching = searching
-                                }
-                            )
 
-                            MainTab.HISTORY -> TransactionHistoryScreen(
-                                transactionsWithCustomer = uiState.allTransactionsWithCustomer,
-                                strings = strings,
-                                currency = uiState.settings.currencySymbol,
-                                useDarkGlass = useDarkGlass,
-                                onViewReceipt = { path -> viewingReceiptPath = path },
-                                onEditTransaction = { tx -> editingTransaction = tx },
-                                onDeleteTransaction = { txId -> viewModel.deleteTransaction(txId) },
-                                onOpenCustomerDetail = { cId -> viewModel.openCustomerDetail(cId) }
-                            )
-
-                            MainTab.SETTINGS -> SettingsScreen(
-                                settings = uiState.settings,
-                                strings = strings,
-                                viewModel = viewModel
-                            )
-                        }
-                    }
-                }
-
-                // First-time launch setup prompt when no setup has been completed and database is empty, or when opened manually
-                val showWelcomeDialog = manualWelcomeStartStep != null ||
-                    (uiState.settings.isSettingsLoaded && !uiState.settings.isSetupCompleted && uiState.customersWithBalance.isEmpty())
-
-                if (showWelcomeDialog) {
+                showWelcomeDialog -> {
                     com.example.ui.components.FirstLaunchSetupDialog(
                         strings = strings,
                         useDarkGlass = useDarkGlass,
@@ -308,9 +199,11 @@ fun TallyKhataProApp(
                         initialCurrency = uiState.settings.currencySymbol,
                         initialBusinessName = uiState.settings.businessName,
                         initialOwnerPhone = uiState.settings.ownerPhone,
+                        initialAccountType = uiState.settings.accountType,
                         initialStep = manualWelcomeStartStep ?: 0,
                         onLanguageChange = { lang -> viewModel.setLanguage(lang) },
                         onThemeChange = { dark -> viewModel.toggleGlassThemeMode(dark) },
+                        onAccountTypeChange = { accType -> viewModel.setAccountType(accType) },
                         onSkipSetup = {
                             manualWelcomeStartStep = null
                             if (!uiState.settings.isSetupCompleted) {
@@ -318,7 +211,8 @@ fun TallyKhataProApp(
                                     businessName = uiState.settings.businessName,
                                     ownerPhone = uiState.settings.ownerPhone,
                                     currencySymbol = uiState.settings.currencySymbol,
-                                    language = uiState.settings.language
+                                    language = uiState.settings.language,
+                                    accountType = uiState.settings.accountType
                                 )
                             }
                         },
@@ -326,15 +220,17 @@ fun TallyKhataProApp(
                             manualWelcomeStartStep = null
                             viewModel.selectTab(MainTab.SETTINGS)
                         },
-                        onCompleteSetup = { bName, oPhone, cSym, lang, firstCustName, firstCustPhone, openDebit, openCredit ->
+                        onCompleteSetup = { bName, oPhone, cSym, lang, accType, firstCustName, firstCustPhone, firstCustPartyType, openDebit, openCredit ->
                             manualWelcomeStartStep = null
                             viewModel.completeInitialSetup(
                                 businessName = bName,
                                 ownerPhone = oPhone,
                                 currencySymbol = cSym,
                                 language = lang,
+                                accountType = accType,
                                 firstCustomerName = firstCustName,
                                 firstCustomerPhone = firstCustPhone,
+                                firstCustomerPartyType = firstCustPartyType,
                                 firstCustomerOpeningDebit = openDebit,
                                 firstCustomerOpeningCredit = openCredit
                             )
@@ -342,67 +238,203 @@ fun TallyKhataProApp(
                     )
                 }
 
-                // Floating Status Toast Banner
-                AnimatedVisibility(
-                    visible = uiState.statusBannerMessage != null,
-                    enter = fadeIn() + scaleIn(
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                    ),
-                    exit = fadeOut() + scaleOut(),
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(horizontal = 20.dp, vertical = 8.dp)
-                ) {
-                    uiState.statusBannerMessage?.let { msg ->
-                        LiquidGlassCard(
-                            useDarkGlass = true,
-                            accentTint = TallyEmeraldGreen,
-                            cornerRadius = 50.dp,
-                            testTag = "status_banner_toast"
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                else -> {
+                    Scaffold(
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.onBackground,
+                        contentWindowInsets = WindowInsets.statusBars,
+                        topBar = {
+                            AnimatedVisibility(
+                                visible = !hideBarsForSearch,
+                                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                                    shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium))
                             ) {
-                                Text(
-                                    text = msg,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
+                                TopLiquidAppBar(
+                                    appTitle = strings.appTitle,
+                                    useDarkGlass = useDarkGlass,
+                                    isSettingsSelected = uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS,
+                                    onSettingsClick = {
+                                        if (uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS) {
+                                            viewModel.selectTab(MainTab.DASHBOARD)
+                                        } else {
+                                            viewModel.selectTab(MainTab.SETTINGS)
+                                        }
+                                    },
+                                    settingsLabel = strings.tabSettings
                                 )
-                                IconButton(
-                                    onClick = { viewModel.clearStatusBanner() },
-                                    modifier = Modifier.size(22.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = strings.closeButton,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
+                            }
+                        }
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                        ) {
+                            AnimatedContent(
+                                targetState = Pair(uiState.selectedCustomerDetail, uiState.currentTab),
+                                transitionSpec = {
+                                    (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                        scaleIn(
+                                            initialScale = 0.96f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                        )).togetherWith(
+                                        fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                                            scaleOut(targetScale = 0.96f)
                                     )
+                                },
+                                label = "screen_transition"
+                            ) { (selectedDetail, currentTab) ->
+                                if (selectedDetail != null) {
+                                    CustomerDetailScreen(
+                                        customerDetail = selectedDetail,
+                                        transactions = uiState.selectedCustomerTransactions,
+                                        strings = strings,
+                                        currency = uiState.settings.currencySymbol,
+                                        useDarkGlass = useDarkGlass,
+                                        onBack = { viewModel.closeCustomerDetail() },
+                                        onAddDebit = {
+                                            activeTxSheetConfig = "DEBIT" to selectedDetail.customer.id
+                                        },
+                                        onAddCredit = {
+                                            activeTxSheetConfig = "CREDIT" to selectedDetail.customer.id
+                                        },
+                                        onOpenSmsReminder = {
+                                            activeSmsCustomer = selectedDetail
+                                        },
+                                        onViewReceipt = { path ->
+                                            viewingReceiptPath = path
+                                        },
+                                        onEditTransaction = { tx ->
+                                            editingTransaction = tx
+                                        },
+                                        onDeleteTransaction = { txId ->
+                                            viewModel.deleteTransaction(txId)
+                                        },
+                                        onDeleteCustomer = {
+                                            viewModel.deleteCustomer(selectedDetail.customer.id)
+                                        }
+                                    )
+                                } else {
+                                    when (currentTab) {
+                                        MainTab.DASHBOARD -> DashboardScreen(
+                                            uiState = uiState,
+                                            strings = strings,
+                                            onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                                            onFilterChange = { viewModel.setCustomerFilter(it) },
+                                            onOpenCustomerDetail = { viewModel.openCustomerDetail(it) },
+                                            onOpenAddCustomer = { showAddCustomerSheet = true },
+                                            onOpenQuickEntry = { type, customerId ->
+                                                if (uiState.customersWithBalance.isEmpty()) {
+                                                    showAddCustomerSheet = true
+                                                } else {
+                                                    activeTxSheetConfig = type to customerId
+                                                }
+                                            },
+                                            onOpenSmsReminder = { customerWithBalance ->
+                                                activeSmsCustomer = customerWithBalance
+                                            },
+                                            onRetryOfflineSync = {
+                                                viewModel.retryOfflineCloudSync()
+                                            },
+                                            onOpenWelcomeSetup = {
+                                                manualWelcomeStartStep = 1
+                                            },
+                                            onSearchingChanged = { searching ->
+                                                isDashboardSearching = searching
+                                            }
+                                        )
+
+                                        MainTab.HISTORY -> TransactionHistoryScreen(
+                                            transactionsWithCustomer = uiState.allTransactionsWithCustomer,
+                                            strings = strings,
+                                            currency = uiState.settings.currencySymbol,
+                                            useDarkGlass = useDarkGlass,
+                                            onViewReceipt = { path -> viewingReceiptPath = path },
+                                            onEditTransaction = { tx -> editingTransaction = tx },
+                                            onDeleteTransaction = { txId -> viewModel.deleteTransaction(txId) },
+                                            onOpenCustomerDetail = { cId -> viewModel.openCustomerDetail(cId) }
+                                        )
+
+                                        MainTab.SETTINGS -> SettingsScreen(
+                                            settings = uiState.settings,
+                                            strings = strings,
+                                            viewModel = viewModel,
+                                            onLockAppNow = { isBiometricUnlocked = false }
+                                        )
+                                    }
                                 }
+                            }
+
+                            // Floating Material 3 Expressive Bottom Navigation Bar (no background box behind it)
+                            AnimatedVisibility(
+                                visible = uiState.selectedCustomerDetail == null && !hideBarsForSearch,
+                                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                                    shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium)),
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                            ) {
+                                BottomLiquidNavigationBar(
+                                    currentTab = uiState.currentTab,
+                                    strings = strings,
+                                    useDarkGlass = useDarkGlass,
+                                    onSelectTab = { viewModel.selectTab(it) },
+                                    onAddCustomerClick = { showAddCustomerSheet = true }
+                                )
                             }
                         }
                     }
                 }
+            }
 
-                // Floating Material 3 Expressive Bottom Navigation Bar (no background box behind it)
-                AnimatedVisibility(
-                    visible = uiState.selectedCustomerDetail == null && !hideBarsForSearch,
-                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                        expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
-                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
-                        shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMedium)),
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                ) {
-                    BottomLiquidNavigationBar(
-                        currentTab = uiState.currentTab,
-                        strings = strings,
-                        useDarkGlass = useDarkGlass,
-                        onSelectTab = { viewModel.selectTab(it) },
-                        onAddCustomerClick = { showAddCustomerSheet = true }
-                    )
+            // Floating Status Toast Banner
+            AnimatedVisibility(
+                visible = uiState.statusBannerMessage != null,
+                enter = fadeIn() + scaleIn(
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                ),
+                exit = fadeOut() + scaleOut(),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                uiState.statusBannerMessage?.let { msg ->
+                    LiquidGlassCard(
+                        useDarkGlass = true,
+                        accentTint = TallyEmeraldGreen,
+                        cornerRadius = 50.dp,
+                        testTag = "status_banner_toast"
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = msg,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(
+                                onClick = { viewModel.clearStatusBanner() },
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = strings.closeButton,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -32,13 +32,16 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,6 +68,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -1584,7 +1588,8 @@ fun ReceiptViewerDialog(
 }
 
 /**
- * First-time Welcome & Guided Quick-Setup experience with instant Skip options at every step.
+ * Full-screen Welcome & Guided Quick-Setup experience with Individual vs. Business account selection
+ * and instant Skip options at every step.
  */
 @Composable
 fun FirstLaunchSetupDialog(
@@ -1594,9 +1599,11 @@ fun FirstLaunchSetupDialog(
     initialCurrency: String,
     initialBusinessName: String = "",
     initialOwnerPhone: String = "",
+    initialAccountType: String = "BUSINESS",
     initialStep: Int = 0,
     onLanguageChange: (String) -> Unit,
     onThemeChange: ((Boolean) -> Unit)? = null,
+    onAccountTypeChange: ((String) -> Unit)? = null,
     onSkipSetup: () -> Unit = {},
     onRestoreFromCloudShortcut: (() -> Unit)? = null,
     onCompleteSetup: (
@@ -1604,20 +1611,30 @@ fun FirstLaunchSetupDialog(
         ownerPhone: String,
         currencySymbol: String,
         language: String,
+        accountType: String,
         firstCustomerName: String,
         firstCustomerPhone: String,
+        firstCustomerPartyType: String,
         firstCustomerOpeningDebit: Double,
         firstCustomerOpeningCredit: Double
     ) -> Unit
 ) {
     var currentStep by remember { mutableStateOf(initialStep.coerceIn(0, 2)) }
+    var accountType by remember(initialAccountType) {
+        mutableStateOf(
+            if (initialAccountType.equals("INDIVIDUAL", ignoreCase = true)) "INDIVIDUAL" else "BUSINESS"
+        )
+    }
     var businessName by remember(initialBusinessName) { mutableStateOf(initialBusinessName) }
     var ownerPhone by remember(initialOwnerPhone) { mutableStateOf(initialOwnerPhone) }
     var currencySymbol by remember(initialCurrency) { mutableStateOf(initialCurrency.ifBlank { "৳" }) }
     var firstCustomerName by remember { mutableStateOf("") }
     var firstCustomerPhone by remember { mutableStateOf("") }
+    var firstCustomerPartyType by remember { mutableStateOf("CUSTOMER") }
     var openingDebitText by remember { mutableStateOf("") }
     var openingCreditText by remember { mutableStateOf("") }
+
+    val isIndividual = accountType == "INDIVIDUAL"
 
     val finishWithCurrentInputs = { includeCustomer: Boolean ->
         onCompleteSetup(
@@ -1625,629 +1642,713 @@ fun FirstLaunchSetupDialog(
             ownerPhone.trim(),
             currencySymbol.ifBlank { "৳" },
             initialLanguage,
+            accountType,
             if (includeCustomer) firstCustomerName.trim() else "",
             if (includeCustomer) firstCustomerPhone.trim() else "",
+            firstCustomerPartyType,
             if (includeCustomer) (openingDebitText.toDoubleOrNull() ?: 0.0) else 0.0,
             if (includeCustomer) (openingCreditText.toDoubleOrNull() ?: 0.0) else 0.0
         )
     }
 
-    Dialog(
-        onDismissRequest = {
+    BackHandler {
+        if (currentStep > 0) {
+            currentStep -= 1
+        } else {
+            finishWithCurrentInputs(false)
             onSkipSetup()
         }
-    ) {
-        LiquidGlassCard(
-            useDarkGlass = useDarkGlass,
-            accentTint = TallyCyanRefraction,
-            cornerRadius = 28.dp,
-            testTag = "first_launch_setup_dialog",
+    }
+
+    LiquidGlassBackdrop(useDarkGlass = useDarkGlass) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .testTag("first_launch_setup_dialog")
         ) {
-            Column(
+            // Top Bar: Language Toggle Pill + Step Progress Indicator + Skip Button
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Top Control Bar: Language Switcher + Interactive Step Dots + Skip Button
+                // Instant Language Toggle Pill (বাংলা / EN)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (useDarkGlass) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+                        )
+                        .border(
+                            1.dp,
+                            TallyCyanRefraction.copy(alpha = 0.45f),
+                            RoundedCornerShape(50)
+                        )
+                        .padding(3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Instant Language Toggle Pill (বাংলা / EN)
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (useDarkGlass) Color(0xFF1E293B) else Color(0xFFE2E8F0)
-                            )
-                            .border(
-                                1.dp,
-                                TallyCyanRefraction.copy(alpha = 0.4f),
-                                RoundedCornerShape(50)
-                            )
-                            .padding(2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf("BN" to "বাংলা", "EN" to "EN").forEach { (code, label) ->
-                            val selected = initialLanguage == code
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(
-                                        if (selected) TallyCyanRefraction else Color.Transparent
-                                    )
-                                    .clickable { onLanguageChange(code) }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    .testTag("welcome_lang_${code.lowercase()}_chip"),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    listOf("BN" to "বাংলা", "EN" to "EN").forEach { (code, label) ->
+                        val selected = initialLanguage == code
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) TallyCyanRefraction else Color.Transparent
                                 )
-                            }
-                        }
-                    }
-
-                    // Step Progress Indicator Dots (clickable to jump to any step)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        for (idx in 0..2) {
-                            val isActive = currentStep == idx
-                            Box(
-                                modifier = Modifier
-                                    .height(8.dp)
-                                    .width(if (isActive) 22.dp else 8.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(
-                                        if (isActive) TallyCyanRefraction
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                    )
-                                    .clickable { currentStep = idx }
-                                    .testTag("welcome_step_dot_$idx")
+                                .clickable { onLanguageChange(code) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag("welcome_lang_${code.lowercase()}_chip"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
+                }
 
-                    // Top-Right Skip All Button
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(TallyGoldAccent.copy(alpha = 0.16f))
-                            .border(1.dp, TallyGoldAccent.copy(alpha = 0.5f), RoundedCornerShape(50))
-                            .clickable {
-                                finishWithCurrentInputs(false)
-                                onSkipSetup()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                            .testTag("skip_welcome_setup_button")
-                    ) {
-                        Text(
-                            text = if (strings.isBn) "এড়িয়ে যান ⏭" else "Skip ⏭",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TallyGoldAccent
+                // Step Progress Indicator Dots (clickable to jump to any step)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (idx in 0..2) {
+                        val isActive = currentStep == idx
+                        Box(
+                            modifier = Modifier
+                                .height(9.dp)
+                                .width(if (isActive) 28.dp else 9.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (isActive) TallyCyanRefraction
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
+                                .clickable { currentStep = idx }
+                                .testTag("welcome_step_dot_$idx")
                         )
                     }
                 }
 
-                // Animated Step Content
-                AnimatedContent(
-                    targetState = currentStep,
-                    transitionSpec = {
-                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                            scaleIn(initialScale = 0.96f)).togetherWith(
-                            fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
-                                scaleOut(targetScale = 0.96f)
-                        )
-                    },
-                    label = "welcome_step_transition"
-                ) { step ->
-                    when (step) {
-                        0 -> {
-                            // STEP 0: Welcome Hero & Feature Highlights
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                // Hero Badge
-                                Box(
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(TallyRubyRed.copy(alpha = 0.2f))
-                                        .border(1.5.dp, TallyRubyRed, RoundedCornerShape(20.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = currencySymbol,
-                                        style = MaterialTheme.typography.headlineLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = TallyRubyRed
-                                    )
-                                }
+                // Top-Right Skip All Button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(TallyGoldAccent.copy(alpha = 0.16f))
+                        .border(1.dp, TallyGoldAccent.copy(alpha = 0.55f), RoundedCornerShape(50))
+                        .clickable {
+                            finishWithCurrentInputs(false)
+                            onSkipSetup()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                        .testTag("skip_welcome_setup_button")
+                ) {
+                    Text(
+                        text = if (strings.isBn) "এড়িয়ে যান ⏭" else "Skip ⏭",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TallyGoldAccent
+                    )
+                }
+            }
 
-                                Text(
-                                    text = if (strings.isBn) "TK Pro-তে স্বাগতম!" else "Welcome to TK Pro!",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                Text(
-                                    text = if (strings.isBn) {
-                                        "সহজ, দ্রুত ও নিরাপদ ডিজিটাল বাকি-জমা হিসাব খাতা। সেটআপ করুন অথবা সরাসরি অ্যাপে প্রবেশ করুন।"
-                                    } else {
-                                        "Fast, offline-first digital Debit & Credit ledger. Customize your shop in seconds or skip straight to the app."
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                // Compact 3-Feature Highlights Box
+            // Main Scrollable Full-Screen Content Area
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    AnimatedContent(
+                        targetState = currentStep,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                scaleIn(initialScale = 0.96f)).togetherWith(
+                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                                    scaleOut(targetScale = 0.96f)
+                            )
+                        },
+                        label = "welcome_step_transition"
+                    ) { step ->
+                        when (step) {
+                            0 -> {
+                                // STEP 0: Full-Screen Welcome Hero, Account Type Selection & Highlights
                                 Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(18.dp))
-                                        .background(
-                                            if (useDarkGlass) Color(0xFF162235) else Color(0xFFF1F5F9)
-                                        )
-                                        .border(
-                                            1.dp,
-                                            TallyCyanRefraction.copy(alpha = 0.3f),
-                                            RoundedCornerShape(18.dp)
-                                        )
-                                        .padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    WelcomeFeatureRow(
-                                        icon = Icons.Default.Payments,
-                                        iconTint = TallyEmeraldGreen,
-                                        title = if (strings.isBn) "দ্রুত বাকি ও জমা এন্ট্রি" else "1-Tap Debit & Credit",
-                                        subtitle = if (strings.isBn) "অটো-ব্যালেন্স হিসাব ও কাস্টমার ফিল্টার" else "Instant running balance & smart customer filters"
-                                    )
-                                    WelcomeFeatureRow(
-                                        icon = Icons.AutoMirrored.Filled.Chat,
-                                        iconTint = Color(0xFF25D366),
-                                        title = if (strings.isBn) "ডিরেক্ট WhatsApp ও SMS রশিদ" else "Direct WhatsApp & SMS Receipts",
-                                        subtitle = if (strings.isBn) "১ ট্যাপে কাস্টমারকে লেনদেন ও তাগাদা পাঠান" else "Send formatted receipts & reminders in one tap"
-                                    )
-                                    WelcomeFeatureRow(
-                                        icon = Icons.Default.CloudDone,
-                                        iconTint = TallyCyanRefraction,
-                                        title = if (strings.isBn) "অফলাইন মোড + Google ক্লাউড সিঙ্ক" else "Offline Mode + Google Cloud Sync",
-                                        subtitle = if (strings.isBn) "ইন্টারনেট ছাড়াই চলে, অনলাইনে Google Sheets/Docs-এ সিঙ্ক হয়" else "Works 100% offline & auto-syncs to Google Sheets/Docs"
-                                    )
-                                }
-
-                                // Optional Theme Switcher Row
-                                if (onThemeChange != null) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    // Hero Badge
+                                    Box(
+                                        modifier = Modifier
+                                            .size(76.dp)
+                                            .clip(RoundedCornerShape(24.dp))
+                                            .background(TallyRubyRed.copy(alpha = 0.18f))
+                                            .border(2.dp, TallyRubyRed, RoundedCornerShape(24.dp)),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = if (strings.isBn) "থিম:" else "Theme:",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        LiquidFilterChip(
-                                            label = if (strings.isBn) "☀️ লাইট" else "☀️ Light",
-                                            selected = !useDarkGlass,
-                                            onClick = { onThemeChange(false) },
-                                            useDarkGlass = useDarkGlass,
-                                            accentColor = TallyGoldAccent,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        LiquidFilterChip(
-                                            label = if (strings.isBn) "🌙 ডার্ক গ্লাস" else "🌙 Dark Glass",
-                                            selected = useDarkGlass,
-                                            onClick = { onThemeChange(true) },
-                                            useDarkGlass = useDarkGlass,
-                                            accentColor = TallyCyanRefraction,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-
-                                // Primary CTA: Set Up Business (Step 1)
-                                SpringyLiquidButton(
-                                    onClick = { currentStep = 1 },
-                                    accentColor = TallyEmeraldGreen,
-                                    secondaryColor = Color(0xFF007E33),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    testTag = "welcome_next_step_button"
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Storefront,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (strings.isBn) "ব্যবসা সেটআপ করুন (৩০ সেকেন্ড)" else "Set Up Business (30 sec)",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                // Secondary Quick-Skip & Cloud Restore Row
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    SpringyLiquidButton(
-                                        onClick = {
-                                            finishWithCurrentInputs(false)
-                                            onSkipSetup()
-                                        },
-                                        accentColor = TallyCyanRefraction,
-                                        secondaryColor = Color(0xFF0077B6),
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                        testTag = "welcome_skip_now_button"
-                                    ) {
-                                        Text(
-                                            text = if (strings.isBn) "এড়িয়ে শুরু করুন" else "Skip & Start Now",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
+                                            text = currencySymbol,
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = TallyRubyRed
                                         )
                                     }
 
-                                    if (onRestoreFromCloudShortcut != null) {
-                                        SpringyLiquidButton(
-                                            onClick = {
-                                                finishWithCurrentInputs(false)
-                                                onRestoreFromCloudShortcut()
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = if (strings.isBn) "TK Pro-তে স্বাগতম!" else "Welcome to TK Pro!",
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+
+                                        Text(
+                                            text = if (strings.isBn) {
+                                                "ব্যবসা অথবা ব্যক্তিগত লেনদেনের আধুনিক, দ্রুত ও নিরাপদ ডিজিটাল হিসাব খাতা।"
+                                            } else {
+                                                "Modern, offline-first digital ledger for your business or personal transactions."
                                             },
-                                            accentColor = TallyGoldAccent,
-                                            secondaryColor = Color(0xFFE65100),
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                            testTag = "welcome_restore_cloud_button"
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
+
+                                    // Account Type Selector: Business vs Individual
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            text = if (strings.isBn) {
+                                                "আপনি কীভাবে অ্যাপটি ব্যবহার করতে চান?"
+                                            } else {
+                                                "How would you like to use TK Pro?"
+                                            },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.CloudDone,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
+                                            // Option 1: Business Account
+                                            AccountModeOptionCard(
+                                                selected = !isIndividual,
+                                                useDarkGlass = useDarkGlass,
+                                                icon = Icons.Default.Storefront,
+                                                accentColor = TallyEmeraldGreen,
+                                                title = if (strings.isBn) "ব্যবসা / দোকান" else "Business / Shop",
+                                                subtitle = if (strings.isBn) {
+                                                    "কাস্টমার ও সাপ্লায়ারের বাকি-জমা হিসাব"
+                                                } else {
+                                                    "Track customers, suppliers & shop dues"
+                                                },
+                                                onClick = {
+                                                    accountType = "BUSINESS"
+                                                    onAccountTypeChange?.invoke("BUSINESS")
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                testTag = "welcome_account_type_business_card"
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            // Option 2: Individual / Personal Account
+                                            AccountModeOptionCard(
+                                                selected = isIndividual,
+                                                useDarkGlass = useDarkGlass,
+                                                icon = Icons.Default.Person,
+                                                accentColor = TallyCyanRefraction,
+                                                title = if (strings.isBn) "ব্যক্তিগত (Individual)" else "Individual",
+                                                subtitle = if (strings.isBn) {
+                                                    "ব্যক্তি বা প্রতিষ্ঠানের সাথে লেনদেন হিসাব"
+                                                } else {
+                                                    "Track personal transactions with people or shops"
+                                                },
+                                                onClick = {
+                                                    accountType = "INDIVIDUAL"
+                                                    onAccountTypeChange?.invoke("INDIVIDUAL")
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                testTag = "welcome_account_type_individual_card"
+                                            )
+                                        }
+                                    }
+
+                                    // 3-Feature Highlights Card
+                                    LiquidGlassCard(
+                                        useDarkGlass = useDarkGlass,
+                                        accentTint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                                        cornerRadius = 22.dp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            WelcomeFeatureRow(
+                                                icon = Icons.Default.Payments,
+                                                iconTint = TallyEmeraldGreen,
+                                                title = if (strings.isBn) {
+                                                    if (isIndividual) "ব্যক্তি ও প্রতিষ্ঠানের দেনা-পাওনা" else "দ্রুত বাকি ও জমা এন্ট্রি"
+                                                } else {
+                                                    if (isIndividual) "Personal & Shop Transactions" else "1-Tap Debit & Credit"
+                                                },
+                                                subtitle = if (strings.isBn) {
+                                                    if (isIndividual) {
+                                                        "বন্ধু, পরিচিত ব্যক্তি বা দোকানের সাথে লেনদেনের অটো-ব্যালেন্স"
+                                                    } else {
+                                                        "অটো-ব্যালেন্স হিসাব ও কাস্টমার ফিল্টার"
+                                                    }
+                                                } else {
+                                                    if (isIndividual) {
+                                                        "Track money lent, borrowed, or paid to individuals & businesses"
+                                                    } else {
+                                                        "Instant running balance & smart customer filters"
+                                                    }
+                                                }
+                                            )
+                                            WelcomeFeatureRow(
+                                                icon = Icons.AutoMirrored.Filled.Chat,
+                                                iconTint = Color(0xFF25D366),
+                                                title = if (strings.isBn) "ডিরেক্ট WhatsApp ও SMS রশিদ" else "Direct WhatsApp & SMS Receipts",
+                                                subtitle = if (strings.isBn) "১ ট্যাপে লেনদেনের হিসাব ও রিমাইন্ডার পাঠান" else "Send formatted receipts & reminders in one tap"
+                                            )
+                                            WelcomeFeatureRow(
+                                                icon = Icons.Default.CloudDone,
+                                                iconTint = TallyCyanRefraction,
+                                                title = if (strings.isBn) "অফলাইন মোড + Google ক্লাউড সিঙ্ক" else "Offline Mode + Google Cloud Sync",
+                                                subtitle = if (strings.isBn) "ইন্টারনেট ছাড়াই চলে, অনলাইনে Google Sheets/Docs-এ সিঙ্ক হয়" else "Works 100% offline & auto-syncs to Google Sheets/Docs"
+                                            )
+                                        }
+                                    }
+
+                                    // Theme Switcher Row
+                                    if (onThemeChange != null) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Text(
-                                                text = if (strings.isBn) "ক্লাউড রিস্টোর" else "Cloud Restore",
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                text = if (strings.isBn) "থিম মোড:" else "Theme:",
+                                                style = MaterialTheme.typography.titleSmall,
                                                 fontWeight = FontWeight.Bold
+                                            )
+                                            LiquidFilterChip(
+                                                label = if (strings.isBn) "☀️ লাইট থিম" else "☀️ Light Mode",
+                                                selected = !useDarkGlass,
+                                                onClick = { onThemeChange(false) },
+                                                useDarkGlass = useDarkGlass,
+                                                accentColor = TallyGoldAccent,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            LiquidFilterChip(
+                                                label = if (strings.isBn) "🌙 ডার্ক থিম" else "🌙 Dark Mode",
+                                                selected = useDarkGlass,
+                                                onClick = { onThemeChange(true) },
+                                                useDarkGlass = useDarkGlass,
+                                                accentColor = TallyCyanRefraction,
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        1 -> {
-                            // STEP 1: Business Profile (Optional)
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Storefront,
-                                        contentDescription = null,
-                                        tint = TallyCyanRefraction
-                                    )
-                                    Column {
-                                        Text(
-                                            text = if (strings.isBn) "আপনার ব্যবসার তথ্য (ঐচ্ছিক)" else "Your Business Profile (Optional)",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = if (strings.isBn) {
-                                                "ধাপ ১/২ • রশিদ ও মেসেজে ব্যবসার নাম দেখাতে সাহায্য করে"
-                                            } else {
-                                                "Step 1 of 2 • Used on customer WhatsApp/SMS receipts"
-                                            },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                OutlinedTextField(
-                                    value = businessName,
-                                    onValueChange = { businessName = it },
-                                    label = { Text(strings.businessNameLabel) },
-                                    placeholder = {
-                                        Text(if (strings.isBn) "যেমন: বিসমিল্লাহ স্টোর" else "e.g., Bismillah Store")
-                                    },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("setup_business_name_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TallyCyanRefraction,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    )
-                                )
-
-                                OutlinedTextField(
-                                    value = ownerPhone,
-                                    onValueChange = { ownerPhone = it },
-                                    label = { Text(strings.ownerPhoneLabel) },
-                                    placeholder = { Text("01XXXXXXXXX") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("setup_owner_phone_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TallyCyanRefraction,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    )
-                                )
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = if (strings.isBn) "মুদ্রা:" else "Currency:",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    listOf("৳", "Tk", "₹", "$", "£", "€").forEach { sym ->
-                                        LiquidFilterChip(
-                                            label = sym,
-                                            selected = currencySymbol == sym,
-                                            onClick = { currencySymbol = sym },
-                                            useDarkGlass = useDarkGlass,
-                                            accentColor = TallyEmeraldGreen
-                                        )
-                                    }
-                                }
-
-                                Row(
+                            1 -> {
+                                // STEP 1: Business or Personal Profile Setup
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    SpringyLiquidButton(
-                                        onClick = { currentStep = 0 },
-                                        accentColor = Color(0xFF475569),
-                                        secondaryColor = Color(0xFF334155),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                                    // Mode switcher pill at top of Step 1 as well
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = strings.cancelButton,
-                                            modifier = Modifier.size(18.dp)
+                                        LiquidFilterChip(
+                                            label = if (strings.isBn) "🏪 ব্যবসা (Business)" else "🏪 Business",
+                                            selected = !isIndividual,
+                                            onClick = {
+                                                accountType = "BUSINESS"
+                                                onAccountTypeChange?.invoke("BUSINESS")
+                                            },
+                                            useDarkGlass = useDarkGlass,
+                                            accentColor = TallyEmeraldGreen,
+                                            modifier = Modifier.weight(1f),
+                                            testTag = "step1_account_type_business_chip"
+                                        )
+                                        LiquidFilterChip(
+                                            label = if (strings.isBn) "👤 ব্যক্তিগত (Individual)" else "👤 Individual",
+                                            selected = isIndividual,
+                                            onClick = {
+                                                accountType = "INDIVIDUAL"
+                                                onAccountTypeChange?.invoke("INDIVIDUAL")
+                                            },
+                                            useDarkGlass = useDarkGlass,
+                                            accentColor = TallyCyanRefraction,
+                                            modifier = Modifier.weight(1f),
+                                            testTag = "step1_account_type_individual_chip"
                                         )
                                     }
 
-                                    SpringyLiquidButton(
-                                        onClick = {
-                                            finishWithCurrentInputs(false)
-                                            onSkipSetup()
-                                        },
-                                        accentColor = TallyCyanRefraction,
-                                        secondaryColor = Color(0xFF0077B6),
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                                        testTag = "skip_business_step_button"
+                                    LiquidGlassCard(
+                                        useDarkGlass = useDarkGlass,
+                                        accentTint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                                        cornerRadius = 24.dp,
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(
-                                            text = if (strings.isBn) "এড়িয়ে শুরু করুন" else "Skip & Start",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(18.dp),
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(44.dp)
+                                                        .clip(RoundedCornerShape(14.dp))
+                                                        .background(
+                                                            (if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen)
+                                                                .copy(alpha = 0.18f)
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
+                                                        contentDescription = null,
+                                                        tint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                }
+                                                Column {
+                                                    Text(
+                                                        text = if (strings.isBn) {
+                                                            if (isIndividual) "আপনার ব্যক্তিগত প্রোফাইল (ঐচ্ছিক)" else "আপনার ব্যবসার তথ্য (ঐচ্ছিক)"
+                                                        } else {
+                                                            if (isIndividual) "Your Personal Profile (Optional)" else "Your Business Profile (Optional)"
+                                                        },
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = if (strings.isBn) {
+                                                            if (isIndividual) {
+                                                                "ধাপ ১/২ • রশিদ ও মেসেজে আপনার নাম দেখাতে সাহায্য করে"
+                                                            } else {
+                                                                "ধাপ ১/২ • রশিদ ও মেসেজে ব্যবসার নাম দেখাতে সাহায্য করে"
+                                                            }
+                                                        } else {
+                                                            if (isIndividual) {
+                                                                "Step 1 of 2 • Shown on WhatsApp/SMS transaction receipts"
+                                                            } else {
+                                                                "Step 1 of 2 • Used on customer WhatsApp/SMS receipts"
+                                                            }
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
 
-                                    SpringyLiquidButton(
-                                        onClick = { currentStep = 2 },
-                                        accentColor = TallyEmeraldGreen,
-                                        secondaryColor = Color(0xFF007E33),
-                                        modifier = Modifier.weight(1.15f),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                                        testTag = "business_step_next_button"
-                                    ) {
-                                        Text(
-                                            text = if (strings.isBn) "পরবর্তী →" else "Next →",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                            OutlinedTextField(
+                                                value = businessName,
+                                                onValueChange = { businessName = it },
+                                                label = {
+                                                    Text(
+                                                        if (strings.isBn) {
+                                                            if (isIndividual) "আপনার নাম (Your Name)" else "ব্যবসা প্রতিষ্ঠানের নাম"
+                                                        } else {
+                                                            if (isIndividual) "Your Full Name" else "Business Name"
+                                                        }
+                                                    )
+                                                },
+                                                placeholder = {
+                                                    Text(
+                                                        if (strings.isBn) {
+                                                            if (isIndividual) "যেমন: রহিম উদ্দিন" else "যেমন: বিসমিল্লাহ স্টোর"
+                                                        } else {
+                                                            if (isIndividual) "e.g., Rahim Uddin" else "e.g., Bismillah Store"
+                                                        }
+                                                    )
+                                                },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("setup_business_name_input"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                )
+                                            )
+
+                                            OutlinedTextField(
+                                                value = ownerPhone,
+                                                onValueChange = { ownerPhone = it },
+                                                label = {
+                                                    Text(
+                                                        if (strings.isBn) {
+                                                            if (isIndividual) "আপনার মোবাইল নম্বর" else "ব্যবসার মোবাইল নম্বর"
+                                                        } else {
+                                                            if (isIndividual) "Your Phone Number" else "Business Phone Number"
+                                                        }
+                                                    )
+                                                },
+                                                placeholder = { Text("01XXXXXXXXX") },
+                                                singleLine = true,
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("setup_owner_phone_input"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                )
+                                            )
+
+                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    text = if (strings.isBn) "মুদ্রা নির্বাচন করুন:" else "Select Currency:",
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .horizontalScroll(rememberScrollState()),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    listOf("৳", "Tk", "₹", "$", "£", "€").forEach { sym ->
+                                                        LiquidFilterChip(
+                                                            label = sym,
+                                                            selected = currencySymbol == sym,
+                                                            onClick = { currencySymbol = sym },
+                                                            useDarkGlass = useDarkGlass,
+                                                            accentColor = TallyEmeraldGreen
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        else -> {
-                            // STEP 2: Optional First Customer
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PersonAdd,
-                                        contentDescription = null,
-                                        tint = TallyEmeraldGreen
-                                    )
-                                    Column {
-                                        Text(
-                                            text = if (strings.isBn) "প্রথম কাস্টমার যুক্ত করুন (ঐচ্ছিক)" else "Add First Customer (Optional)",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = if (strings.isBn) {
-                                                "ধাপ ২/২ • চাইলে এখনই ১ জন কাস্টমার যুক্ত করুন অথবা এড়িয়ে যান"
-                                            } else {
-                                                "Step 2 of 2 • Add your first customer now or skip to Dashboard"
-                                            },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                OutlinedTextField(
-                                    value = firstCustomerName,
-                                    onValueChange = { firstCustomerName = it },
-                                    label = { Text(strings.customerNameLabel) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("setup_first_customer_name_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TallyCyanRefraction,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    )
-                                )
-
-                                OutlinedTextField(
-                                    value = firstCustomerPhone,
-                                    onValueChange = { firstCustomerPhone = it },
-                                    label = { Text(strings.phoneNumberLabel) },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("setup_first_customer_phone_input"),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = TallyCyanRefraction,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    )
-                                )
-
-                                Row(
+                            else -> {
+                                // STEP 2: Optional First Person / Business / Customer
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    OutlinedTextField(
-                                        value = openingDebitText,
-                                        onValueChange = {
-                                            openingDebitText = it.filter { ch -> ch.isDigit() || ch == '.' }
-                                        },
-                                        label = {
-                                            Text(
-                                                if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Receivable"
+                                    LiquidGlassCard(
+                                        useDarkGlass = useDarkGlass,
+                                        accentTint = TallyEmeraldGreen,
+                                        cornerRadius = 24.dp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(18.dp),
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(44.dp)
+                                                        .clip(RoundedCornerShape(14.dp))
+                                                        .background(TallyEmeraldGreen.copy(alpha = 0.18f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PersonAdd,
+                                                        contentDescription = null,
+                                                        tint = TallyEmeraldGreen,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                }
+                                                Column {
+                                                    Text(
+                                                        text = if (strings.isBn) {
+                                                            if (isIndividual) {
+                                                                "প্রথম ব্যক্তি বা প্রতিষ্ঠান যুক্ত করুন (ঐচ্ছিক)"
+                                                            } else {
+                                                                "প্রথম কাস্টমার যুক্ত করুন (ঐচ্ছিক)"
+                                                            }
+                                                        } else {
+                                                            if (isIndividual) {
+                                                                "Add First Person or Business (Optional)"
+                                                            } else {
+                                                                "Add First Customer (Optional)"
+                                                            }
+                                                        },
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = if (strings.isBn) {
+                                                            if (isIndividual) {
+                                                                "ধাপ ২/২ • যাঁর সাথে বা যে প্রতিষ্ঠানের সাথে লেনদেন করেন তার নাম লিখুন"
+                                                            } else {
+                                                                "ধাপ ২/২ • চাইলে এখনই ১ জন কাস্টমার যুক্ত করুন অথবা এড়িয়ে যান"
+                                                            }
+                                                        } else {
+                                                            if (isIndividual) {
+                                                                "Step 2 of 2 • Add a person or business you transact with, or skip"
+                                                            } else {
+                                                                "Step 2 of 2 • Add your first customer now or skip to Dashboard"
+                                                            }
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            // Party Type Selector (Person/Customer vs Business/Supplier)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                LiquidFilterChip(
+                                                    label = if (strings.isBn) {
+                                                        if (isIndividual) "👤 ব্যক্তি (Person)" else "👤 কাস্টমার"
+                                                    } else {
+                                                        if (isIndividual) "👤 Person" else "👤 Customer"
+                                                    },
+                                                    selected = firstCustomerPartyType == "CUSTOMER",
+                                                    onClick = { firstCustomerPartyType = "CUSTOMER" },
+                                                    useDarkGlass = useDarkGlass,
+                                                    accentColor = TallyCyanRefraction,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                LiquidFilterChip(
+                                                    label = if (strings.isBn) {
+                                                        if (isIndividual) "🏪 ব্যবসা / শপ" else "🏪 সাপ্লায়ার"
+                                                    } else {
+                                                        if (isIndividual) "🏪 Business / Shop" else "🏪 Supplier"
+                                                    },
+                                                    selected = firstCustomerPartyType == "SUPPLIER",
+                                                    onClick = { firstCustomerPartyType = "SUPPLIER" },
+                                                    useDarkGlass = useDarkGlass,
+                                                    accentColor = TallyGoldAccent,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+
+                                            OutlinedTextField(
+                                                value = firstCustomerName,
+                                                onValueChange = { firstCustomerName = it },
+                                                label = {
+                                                    Text(
+                                                        if (strings.isBn) {
+                                                            if (isIndividual) "ব্যক্তি বা প্রতিষ্ঠানের নাম" else "কাস্টমার বা পার্টির নাম"
+                                                        } else {
+                                                            if (isIndividual) "Person or Business Name" else "Customer or Party Name"
+                                                        }
+                                                    )
+                                                },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("setup_first_customer_name_input"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = TallyCyanRefraction,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                )
                                             )
-                                        },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.weight(1f),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = TallyRubyRed,
-                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                        )
-                                    )
-                                    OutlinedTextField(
-                                        value = openingCreditText,
-                                        onValueChange = {
-                                            openingCreditText = it.filter { ch -> ch.isDigit() || ch == '.' }
-                                        },
-                                        label = {
-                                            Text(
-                                                if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Payable"
+
+                                            OutlinedTextField(
+                                                value = firstCustomerPhone,
+                                                onValueChange = { firstCustomerPhone = it },
+                                                label = { Text(strings.phoneNumberLabel) },
+                                                singleLine = true,
+                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                                shape = RoundedCornerShape(16.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .testTag("setup_first_customer_phone_input"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = TallyCyanRefraction,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                )
                                             )
-                                        },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.weight(1f),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = TallyEmeraldGreen,
-                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                        )
-                                    )
-                                }
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    SpringyLiquidButton(
-                                        onClick = { currentStep = 1 },
-                                        accentColor = Color(0xFF475569),
-                                        secondaryColor = Color(0xFF334155),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = strings.cancelButton,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-
-                                    SpringyLiquidButton(
-                                        onClick = {
-                                            finishWithCurrentInputs(false)
-                                            onSkipSetup()
-                                        },
-                                        accentColor = TallyCyanRefraction,
-                                        secondaryColor = Color(0xFF0077B6),
-                                        modifier = Modifier.weight(0.9f),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                                        testTag = "skip_first_customer_button"
-                                    ) {
-                                        Text(
-                                            text = if (strings.isBn) "এড়িয়ে যান" else "Skip",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    SpringyLiquidButton(
-                                        onClick = {
-                                            finishWithCurrentInputs(true)
-                                        },
-                                        accentColor = TallyEmeraldGreen,
-                                        secondaryColor = Color(0xFF007E33),
-                                        modifier = Modifier.weight(1.3f),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                                        testTag = "complete_setup_button"
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (strings.isBn) "শুরু করুন" else "Start Ledger",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = openingDebitText,
+                                                    onValueChange = {
+                                                        openingDebitText = it.filter { ch -> ch.isDigit() || ch == '.' }
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Receivable"
+                                                        )
+                                                    },
+                                                    singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = TallyRubyRed,
+                                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                    )
+                                                )
+                                                OutlinedTextField(
+                                                    value = openingCreditText,
+                                                    onValueChange = {
+                                                        openingCreditText = it.filter { ch -> ch.isDigit() || ch == '.' }
+                                                    },
+                                                    label = {
+                                                        Text(
+                                                            if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Payable"
+                                                        )
+                                                    },
+                                                    singleLine = true,
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    modifier = Modifier.weight(1f),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = TallyEmeraldGreen,
+                                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                    )
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2255,7 +2356,300 @@ fun FirstLaunchSetupDialog(
                     }
                 }
             }
+
+            // Bottom Fixed Action Bar for Full-Screen Welcome Flow
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when (currentStep) {
+                    0 -> {
+                        SpringyLiquidButton(
+                            onClick = { currentStep = 1 },
+                            accentColor = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
+                            secondaryColor = if (isIndividual) Color(0xFF0077B6) else Color(0xFF007E33),
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                            testTag = "welcome_next_step_button"
+                        ) {
+                            Icon(
+                                imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (strings.isBn) {
+                                    if (isIndividual) {
+                                        "ব্যক্তিগত প্রোফাইল সেটআপ করুন (৩০ সেকেন্ড)"
+                                    } else {
+                                        "ব্যবসা সেটআপ করুন (৩০ সেকেন্ড)"
+                                    }
+                                } else {
+                                    if (isIndividual) {
+                                        "Set Up Personal Profile (30 sec)"
+                                    } else {
+                                        "Set Up Business (30 sec)"
+                                    }
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            SpringyLiquidButton(
+                                onClick = {
+                                    finishWithCurrentInputs(false)
+                                    onSkipSetup()
+                                },
+                                accentColor = Color(0xFF475569),
+                                secondaryColor = Color(0xFF334155),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                                testTag = "welcome_skip_now_button"
+                            ) {
+                                Text(
+                                    text = if (strings.isBn) "এড়িয়ে শুরু করুন" else "Skip & Start Now",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            if (onRestoreFromCloudShortcut != null) {
+                                SpringyLiquidButton(
+                                    onClick = {
+                                        finishWithCurrentInputs(false)
+                                        onRestoreFromCloudShortcut()
+                                    },
+                                    accentColor = TallyGoldAccent,
+                                    secondaryColor = Color(0xFFE65100),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                                    testTag = "welcome_restore_cloud_button"
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (strings.isBn) "ক্লাউড রিস্টোর" else "Cloud Restore",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    1 -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            SpringyLiquidButton(
+                                onClick = { currentStep = 0 },
+                                accentColor = Color(0xFF475569),
+                                secondaryColor = Color(0xFF334155),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = strings.cancelButton,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            SpringyLiquidButton(
+                                onClick = {
+                                    finishWithCurrentInputs(false)
+                                    onSkipSetup()
+                                },
+                                accentColor = TallyCyanRefraction,
+                                secondaryColor = Color(0xFF0077B6),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                                testTag = "skip_business_step_button"
+                            ) {
+                                Text(
+                                    text = if (strings.isBn) "এড়িয়ে শুরু করুন" else "Skip & Start",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            SpringyLiquidButton(
+                                onClick = { currentStep = 2 },
+                                accentColor = TallyEmeraldGreen,
+                                secondaryColor = Color(0xFF007E33),
+                                modifier = Modifier.weight(1.15f),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                                testTag = "business_step_next_button"
+                            ) {
+                                Text(
+                                    text = if (strings.isBn) "পরবর্তী →" else "Next →",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    else -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            SpringyLiquidButton(
+                                onClick = { currentStep = 1 },
+                                accentColor = Color(0xFF475569),
+                                secondaryColor = Color(0xFF334155),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = strings.cancelButton,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            SpringyLiquidButton(
+                                onClick = {
+                                    finishWithCurrentInputs(false)
+                                    onSkipSetup()
+                                },
+                                accentColor = TallyCyanRefraction,
+                                secondaryColor = Color(0xFF0077B6),
+                                modifier = Modifier.weight(0.9f),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                                testTag = "skip_first_customer_button"
+                            ) {
+                                Text(
+                                    text = if (strings.isBn) "এড়িয়ে যান" else "Skip",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            SpringyLiquidButton(
+                                onClick = {
+                                    finishWithCurrentInputs(true)
+                                },
+                                accentColor = TallyEmeraldGreen,
+                                secondaryColor = Color(0xFF007E33),
+                                modifier = Modifier.weight(1.3f),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+                                testTag = "complete_setup_button"
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (strings.isBn) "শুরু করুন" else "Start Ledger",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun AccountModeOptionCard(
+    selected: Boolean,
+    useDarkGlass: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accentColor: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String
+) {
+    val bgColor = when {
+        selected && useDarkGlass -> accentColor.copy(alpha = 0.22f)
+        selected && !useDarkGlass -> accentColor.copy(alpha = 0.14f)
+        useDarkGlass -> Color(0xFF162235)
+        else -> Color(0xFFF1F5F9)
+    }
+    val borderColor = if (selected) {
+        accentColor
+    } else {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(bgColor)
+            .border(if (selected) 2.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(14.dp)
+            .testTag(testTag),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accentColor.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) accentColor else MaterialTheme.colorScheme.onSurface
+        )
+
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            minLines = 2
+        )
     }
 }
 

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sms
@@ -182,7 +183,7 @@ fun DashboardScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Storefront,
+                                    imageVector = if (strings.isIndividual) Icons.Default.Person else Icons.Default.Storefront,
                                     contentDescription = null,
                                     tint = TallyCyanRefraction
                                 )
@@ -273,9 +274,10 @@ fun DashboardScreen(
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             val cText = if (strings.isBn) {
-                                "${LocalizationProvider.toBengaliDigits(uiState.summary.customerCount.toString())} পার্টি"
+                                val countStr = LocalizationProvider.toBengaliDigits(uiState.summary.customerCount.toString())
+                                if (strings.isIndividual) "$countStr হিসাব" else "$countStr পার্টি"
                             } else {
-                                "${uiState.summary.customerCount} Parties"
+                                if (strings.isIndividual) "${uiState.summary.customerCount} Accounts" else "${uiState.summary.customerCount} Parties"
                             }
                             Text(
                                 text = cText,
@@ -742,13 +744,17 @@ fun DashboardScreen(
                                     testTag = "empty_state_open_welcome_setup_button"
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Storefront,
+                                        imageVector = if (strings.isIndividual) Icons.Default.Person else Icons.Default.Storefront,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (strings.isBn) "ব্যবসা সেটআপ" else "Setup Shop",
+                                        text = if (strings.isIndividual) {
+                                            if (strings.isBn) "প্রোফাইল সেটআপ" else "Setup Profile"
+                                        } else {
+                                            if (strings.isBn) "ব্যবসা সেটআপ" else "Setup Shop"
+                                        },
                                         fontWeight = FontWeight.Bold
                                     )
                                 }

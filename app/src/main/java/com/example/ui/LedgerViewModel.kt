@@ -506,11 +506,46 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun updateBusinessSettings(businessName: String, ownerPhone: String, currencySymbol: String) {
+    fun updateBusinessSettings(
+        businessName: String,
+        ownerPhone: String,
+        currencySymbol: String,
+        accountType: String? = null
+    ) {
         viewModelScope.launch {
-            repository.updateBusinessSettings(businessName, ownerPhone, currencySymbol)
-            _statusBannerMessage.value = "✅ ব্যবসার তথ্য ও কারেন্সি আপডেট করা হয়েছে"
+            repository.updateBusinessSettings(businessName, ownerPhone, currencySymbol, accountType)
+            val isBn = uiState.value.settings.language != "EN"
+            _statusBannerMessage.value = if (isBn) {
+                "✅ প্রোফাইল তথ্য ও কারেন্সি আপডেট করা হয়েছে"
+            } else {
+                "✅ Profile & currency updated"
+            }
             triggerAutoSyncGoogleDocsIfConfigured()
+        }
+    }
+
+    fun setAccountType(accountType: String) {
+        viewModelScope.launch {
+            repository.updateAccountType(accountType)
+            val isBn = uiState.value.settings.language != "EN"
+            val isInd = accountType.equals("INDIVIDUAL", ignoreCase = true)
+            _statusBannerMessage.value = if (isBn) {
+                if (isInd) "✅ ব্যক্তিগত (Individual) খাতা মোড চালু হয়েছে" else "✅ ব্যবসা (Business) খাতা মোড চালু হয়েছে"
+            } else {
+                if (isInd) "✅ Switched to Individual Ledger mode" else "✅ Switched to Business Ledger mode"
+            }
+        }
+    }
+
+    fun setBiometricLockEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setBiometricLockEnabled(enabled)
+            val isBn = uiState.value.settings.language != "EN"
+            _statusBannerMessage.value = if (enabled) {
+                if (isBn) "🔒 বায়োমেট্রিক লগইন চালু করা হয়েছে" else "🔒 Biometric App Lock enabled"
+            } else {
+                if (isBn) "🔓 বায়োমেট্রিক লগইন বন্ধ করা হয়েছে" else "🔓 Biometric App Lock disabled"
+            }
         }
     }
 
@@ -519,8 +554,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         ownerPhone: String,
         currencySymbol: String,
         language: String,
+        accountType: String = "BUSINESS",
         firstCustomerName: String = "",
         firstCustomerPhone: String = "",
+        firstCustomerPartyType: String = "CUSTOMER",
         firstCustomerOpeningDebit: Double = 0.0,
         firstCustomerOpeningCredit: Double = 0.0
     ) {
@@ -529,13 +566,14 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 businessName = businessName,
                 ownerPhone = ownerPhone,
                 currencySymbol = currencySymbol,
-                language = language
+                language = language,
+                accountType = accountType
             )
             if (firstCustomerName.isNotBlank()) {
                 addCustomer(
                     name = firstCustomerName.trim(),
                     phone = firstCustomerPhone.trim(),
-                    partyType = "CUSTOMER",
+                    partyType = firstCustomerPartyType,
                     address = "",
                     openingDebit = firstCustomerOpeningDebit,
                     openingCredit = firstCustomerOpeningCredit

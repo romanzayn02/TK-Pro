@@ -14,6 +14,7 @@ import org.json.JSONObject
 private val Context.dataStore by preferencesDataStore(name = "tallykhata_settings")
 
 data class AppSettings(
+    val accountType: String = "BUSINESS", // "BUSINESS" (ব্যবসা) or "INDIVIDUAL" (ব্যক্তিগত)
     val businessName: String = "",
     val ownerPhone: String = "",
     val currencySymbol: String = "৳",
@@ -29,6 +30,7 @@ data class AppSettings(
         "অন্যান্য"
     ),
     val useDarkGlassTheme: Boolean = false,
+    val biometricLockEnabled: Boolean = false,
     val isSetupCompleted: Boolean = false,
     val isSettingsLoaded: Boolean = false,
     val syncedGoogleDocId: String = "",
@@ -45,12 +47,14 @@ class LedgerRepository(
     private val context: Context
 ) {
     private object Keys {
+        val ACCOUNT_TYPE = stringPreferencesKey("account_type")
         val BUSINESS_NAME = stringPreferencesKey("business_name")
         val OWNER_PHONE = stringPreferencesKey("owner_phone")
         val CURRENCY_SYMBOL = stringPreferencesKey("currency_symbol")
         val LANGUAGE = stringPreferencesKey("language")
         val CUSTOM_CATEGORIES = stringPreferencesKey("custom_categories")
         val USE_DARK_GLASS = booleanPreferencesKey("use_dark_glass")
+        val BIOMETRIC_LOCK_ENABLED = booleanPreferencesKey("biometric_lock_enabled")
         val IS_SETUP_COMPLETED = booleanPreferencesKey("is_setup_completed")
         val SYNCED_GOOGLE_DOC_ID = stringPreferencesKey("synced_google_doc_id")
         val SYNCED_GOOGLE_SHEET_ID = stringPreferencesKey("synced_google_sheet_id")
@@ -78,12 +82,14 @@ class LedgerRepository(
             rawCats.split("|").filter { it.isNotBlank() }
         }
         AppSettings(
+            accountType = prefs[Keys.ACCOUNT_TYPE] ?: "BUSINESS",
             businessName = prefs[Keys.BUSINESS_NAME] ?: "",
             ownerPhone = prefs[Keys.OWNER_PHONE] ?: "",
             currencySymbol = prefs[Keys.CURRENCY_SYMBOL] ?: "৳",
             language = prefs[Keys.LANGUAGE] ?: "BN",
             customCategories = categories,
             useDarkGlassTheme = prefs[Keys.USE_DARK_GLASS] ?: false,
+            biometricLockEnabled = prefs[Keys.BIOMETRIC_LOCK_ENABLED] ?: false,
             isSetupCompleted = prefs[Keys.IS_SETUP_COMPLETED] ?: false,
             isSettingsLoaded = true,
             syncedGoogleDocId = prefs[Keys.SYNCED_GOOGLE_DOC_ID] ?: "",
@@ -234,9 +240,13 @@ class LedgerRepository(
     suspend fun updateBusinessSettings(
         businessName: String,
         ownerPhone: String,
-        currencySymbol: String
+        currencySymbol: String,
+        accountType: String? = null
     ) {
         context.dataStore.edit { prefs ->
+            if (accountType != null) {
+                prefs[Keys.ACCOUNT_TYPE] = accountType
+            }
             prefs[Keys.BUSINESS_NAME] = businessName.trim()
             prefs[Keys.OWNER_PHONE] = ownerPhone.trim()
             prefs[Keys.CURRENCY_SYMBOL] = currencySymbol.trim().ifEmpty { "৳" }
@@ -244,13 +254,27 @@ class LedgerRepository(
         }
     }
 
+    suspend fun updateAccountType(accountType: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.ACCOUNT_TYPE] = accountType
+        }
+    }
+
+    suspend fun setBiometricLockEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.BIOMETRIC_LOCK_ENABLED] = enabled
+        }
+    }
+
     suspend fun completeInitialSetup(
         businessName: String,
         ownerPhone: String,
         currencySymbol: String,
-        language: String
+        language: String,
+        accountType: String = "BUSINESS"
     ) {
         context.dataStore.edit { prefs ->
+            prefs[Keys.ACCOUNT_TYPE] = accountType
             prefs[Keys.BUSINESS_NAME] = businessName.trim()
             prefs[Keys.OWNER_PHONE] = ownerPhone.trim()
             prefs[Keys.CURRENCY_SYMBOL] = currencySymbol.trim().ifEmpty { "৳" }
@@ -320,6 +344,7 @@ class LedgerRepository(
         root.put("exportedAt", System.currentTimeMillis())
 
         val settingsJson = JSONObject().apply {
+            put("accountType", currentSettings.accountType)
             put("businessName", currentSettings.businessName)
             put("ownerPhone", currentSettings.ownerPhone)
             put("currencySymbol", currentSettings.currencySymbol)
@@ -409,13 +434,15 @@ class LedgerRepository(
             }
 
             root.optJSONObject("settings")?.let { sObj ->
+                val accType = sObj.optString("accountType", "BUSINESS").ifBlank { "BUSINESS" }
                 val bName = sObj.optString("businessName")
                 val oPhone = sObj.optString("ownerPhone")
                 val cSymbol = sObj.optString("currencySymbol")
                 updateBusinessSettings(
                     businessName = bName,
                     ownerPhone = oPhone,
-                    currencySymbol = cSymbol.ifBlank { "৳" }
+                    currencySymbol = cSymbol.ifBlank { "৳" },
+                    accountType = accType
                 )
             } ?: run {
                 context.dataStore.edit { prefs ->

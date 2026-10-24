@@ -49,6 +49,8 @@ enum class CustomerFilter {
 }
 
 enum class GoogleDocsSyncAction {
+    SIGN_IN_ONLY,
+    AUTO_RESTORE,
     PUSH_TO_DOCS,
     PULL_FROM_DOCS,
     PUSH_TO_SHEETS,
@@ -94,7 +96,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val _isSyncingGoogleDocs = MutableStateFlow(false)
     private val _isNetworkOnline = MutableStateFlow(checkIsOnline())
     private val _isSyncFailedOfflineMode = MutableStateFlow(false)
+    private val _pendingWelcomeCloudRestore = MutableStateFlow(false)
     val statusBannerMessage: StateFlow<String?> = _statusBannerMessage.asStateFlow()
+    val pendingWelcomeCloudRestore: StateFlow<Boolean> = _pendingWelcomeCloudRestore.asStateFlow()
+
+    fun requestCloudRestoreFromWelcome() {
+        _pendingWelcomeCloudRestore.value = true
+    }
+
+    fun consumePendingWelcomeCloudRestore() {
+        _pendingWelcomeCloudRestore.value = false
+    }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -641,6 +653,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         intent: android.content.Intent?,
         action: GoogleDocsSyncAction,
         customDocIdInput: String?,
+        onNeedsConsent: (IntentSender, GoogleDocsSyncAction, String?) -> Unit = { _, _, _ -> },
         onNeedsSignInIntent: (android.content.Intent, GoogleDocsSyncAction, String?) -> Unit
     ) {
         viewModelScope.launch {
@@ -650,7 +663,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 authOutcome = outcome,
                 action = action,
                 customDocIdInput = customDocIdInput,
-                onNeedsConsent = { _, _, _ -> },
+                onNeedsConsent = onNeedsConsent,
                 onNeedsSignInIntent = onNeedsSignInIntent
             )
         }
@@ -661,6 +674,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         intent: android.content.Intent?,
         action: GoogleDocsSyncAction,
         customDocIdInput: String?,
+        onNeedsConsent: (IntentSender, GoogleDocsSyncAction, String?) -> Unit = { _, _, _ -> },
         onNeedsSignInIntent: (android.content.Intent, GoogleDocsSyncAction, String?) -> Unit
     ) {
         viewModelScope.launch {
@@ -670,7 +684,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 authOutcome = outcome,
                 action = action,
                 customDocIdInput = customDocIdInput,
-                onNeedsConsent = { _, _, _ -> },
+                onNeedsConsent = onNeedsConsent,
                 onNeedsSignInIntent = onNeedsSignInIntent
             )
         }
@@ -701,13 +715,21 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
             is GoogleDocsAuthOutcome.Error -> {
                 _isSyncingGoogleDocs.value = false
-                _isSyncFailedOfflineMode.value = true
                 val isBn = uiState.value.settings.language != "EN"
-                repository.setPendingCloudSync(true, authOutcome.message)
-                _statusBannerMessage.value = if (isBn) {
-                    "📴 অফলাইন মোড (সিঙ্ক ব্যর্থ): ${authOutcome.message}"
+                if (action == GoogleDocsSyncAction.SIGN_IN_ONLY) {
+                    _statusBannerMessage.value = if (isBn) {
+                        "⚠️ গুগল লগইন সম্পন্ন হয়নি: ${authOutcome.message}"
+                    } else {
+                        "⚠️ Google sign-in not completed: ${authOutcome.message}"
+                    }
                 } else {
-                    "📴 Offline Mode (Sync failed): ${authOutcome.message}"
+                    _isSyncFailedOfflineMode.value = true
+                    repository.setPendingCloudSync(true, authOutcome.message)
+                    _statusBannerMessage.value = if (isBn) {
+                        "📴 অফলাইন মোড (সিঙ্ক ব্যর্থ): ${authOutcome.message}"
+                    } else {
+                        "📴 Offline Mode (Sync failed): ${authOutcome.message}"
+                    }
                 }
             }
         }
@@ -718,10 +740,117 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         action: GoogleDocsSyncAction,
         customDocIdInput: String?
     ) {
+        val appContext = getApplication<Application>()
         val currentSettings = repository.settingsFlow.first()
         val isBn = currentSettings.language != "EN"
 
         when (action) {
+            GoogleDocsSyncAction.SIGN_IN_ONLY -> {
+                _isSyncFailedOfflineMode.value = false
+                repository.setPendingCloudSync(false, "")
+                val email = GoogleDocsSyncService.getSignedInEmail(appContext).orEmpty()
+                val localCustomers = repository.getAllCustomersSnapshot()
+                val localTransactions = repository.getAllTransactionsSnapshot()
+
+                // If local database is empty on login, automatically check Google Drive for an existing backup!
+                if (localCustomers.isEmpty() && localTransactions.isEmpty()) {
+                    val discovered = GoogleDocsSyncService.findAndPullLatestCloudBackup(
+                        accessToken = accessToken,
+                        preferredDocId = currentSettings.syncedGoogleDocId,
+                        preferredSheetId = currentSettings.syncedGoogleSheetId
+                    )
+                    if (discovered.isSuccess) {
+                        val backup = discovered.getOrThrow()
+                        val importRes = repository.importBackupJson(backup.jsonPayload)
+                        if (importRes.isSuccess) {
+                            val (cCount, tCount) = importRes.getOrThrow()
+                            if (backup.isSpreadsheet) {
+                                repository.updateGoogleSheetsSyncInfo(backup.id, System.currentTimeMillis())
+                            } else {
+                                repository.updateGoogleDocsSyncInfo(backup.id, System.currentTimeMillis())
+                            }
+                            _isSyncingGoogleDocs.value = false
+                            _statusBannerMessage.value = if (isBn) {
+                                "✅ লগইন সফল ও ক্লাউড থেকে $cCount জন কাস্টমার এবং $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                            } else {
+                                "✅ Signed in & restored $cCount customers and $tCount transactions from Cloud!"
+                            }
+                            return
+                        }
+                    }
+                }
+
+                _isSyncingGoogleDocs.value = false
+                _statusBannerMessage.value = if (isBn) {
+                    if (email.isNotBlank()) "✅ Google অ্যাকাউন্ট লগইন সফল ($email)" else "✅ Google অ্যাকাউন্ট লগইন সফল!"
+                } else {
+                    if (email.isNotBlank()) "✅ Signed in to Google ($email)" else "✅ Signed in to Google!"
+                }
+            }
+
+            GoogleDocsSyncAction.AUTO_RESTORE -> {
+                val hadPendingOffline = currentSettings.hasPendingCloudSync
+                val discoveredRes = GoogleDocsSyncService.findAndPullLatestCloudBackup(
+                    accessToken = accessToken,
+                    preferredDocId = customDocIdInput?.takeIf { it.isNotBlank() } ?: currentSettings.syncedGoogleDocId,
+                    preferredSheetId = currentSettings.syncedGoogleSheetId
+                )
+                discoveredRes.onSuccess { backup ->
+                    val importRes = repository.importBackupJson(backup.jsonPayload)
+                    importRes.onSuccess { (cCount, tCount) ->
+                        _isSyncFailedOfflineMode.value = false
+                        if (backup.isSpreadsheet) {
+                            repository.updateGoogleSheetsSyncInfo(backup.id, System.currentTimeMillis())
+                            if (hadPendingOffline) {
+                                val mergedSettings = repository.settingsFlow.first()
+                                GoogleDocsSyncService.syncLedgerToGoogleSheet(
+                                    accessToken = accessToken,
+                                    existingSheetId = backup.id,
+                                    settings = mergedSettings,
+                                    customers = repository.getAllCustomersSnapshot(),
+                                    transactions = repository.getAllTransactionsSnapshot(),
+                                    rawBackupJson = repository.exportBackupJson(mergedSettings)
+                                )
+                            }
+                        } else {
+                            repository.updateGoogleDocsSyncInfo(backup.id, System.currentTimeMillis())
+                            if (hadPendingOffline) {
+                                val mergedSettings = repository.settingsFlow.first()
+                                GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                                    accessToken = accessToken,
+                                    existingDocId = backup.id,
+                                    settings = mergedSettings,
+                                    customers = repository.getAllCustomersSnapshot(),
+                                    transactions = repository.getAllTransactionsSnapshot(),
+                                    rawBackupJson = repository.exportBackupJson(mergedSettings)
+                                )
+                            }
+                        }
+                        _isSyncingGoogleDocs.value = false
+                        val sourceName = if (backup.isSpreadsheet) "Google Sheets" else "Google Docs"
+                        _statusBannerMessage.value = if (isBn) {
+                            "✅ $sourceName থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                        } else {
+                            "✅ Restored $cCount customers & $tCount transactions from $sourceName!"
+                        }
+                    }.onFailure { err ->
+                        _isSyncingGoogleDocs.value = false
+                        _statusBannerMessage.value = if (isBn) {
+                            "❌ ডাটা রিস্টোর ত্রুটি: ${err.localizedMessage}"
+                        } else {
+                            "❌ Restore parse error: ${err.localizedMessage}"
+                        }
+                    }
+                }.onFailure {
+                    _isSyncingGoogleDocs.value = false
+                    _statusBannerMessage.value = if (isBn) {
+                        "ℹ️ এই Google অ্যাকাউন্টের Drive-এ পূর্বের কোনো ব্যাকআপ পাওয়া যায়নি। লিংক থাকলে নিচে দিন।"
+                    } else {
+                        "ℹ️ No existing TK Pro backup found in this Google Drive. Paste a Doc/Sheet link if you have one."
+                    }
+                }
+            }
+
             GoogleDocsSyncAction.PUSH_TO_DOCS -> {
                 val resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
                     ?.let { GoogleDocsSyncService.extractDocIdFromInput(it) }
@@ -761,18 +890,25 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             GoogleDocsSyncAction.PULL_FROM_DOCS -> {
-                val resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
+                var resolvedDocId = customDocIdInput?.takeIf { it.isNotBlank() }
                     ?.let { GoogleDocsSyncService.extractDocIdFromInput(it) }
                     ?: currentSettings.syncedGoogleDocId
+
+                // Auto-discover latest backup Google Doc from Drive when no ID is manually entered
                 if (resolvedDocId.isBlank()) {
-                    _isSyncingGoogleDocs.value = false
-                    _statusBannerMessage.value = if (isBn) {
-                        "❌ অনুগ্রহ করে প্রথমে Google Doc ID বা লিংক দিন"
-                    } else {
-                        "❌ Please enter a Google Doc ID or link first"
-                    }
+                    resolvedDocId = GoogleDocsSyncService.findLatestBackupDocId(accessToken).orEmpty()
+                }
+
+                // If still blank, try auto-discovering across both Docs and Sheets
+                if (resolvedDocId.isBlank()) {
+                    executeAuthorizedGoogleDocsSync(
+                        accessToken = accessToken,
+                        action = GoogleDocsSyncAction.AUTO_RESTORE,
+                        customDocIdInput = null
+                    )
                     return
                 }
+
                 val hadPendingOffline = currentSettings.hasPendingCloudSync
                 val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleDoc(
                     accessToken = accessToken,
@@ -800,7 +936,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         _isSyncingGoogleDocs.value = false
                         _statusBannerMessage.value = if (isBn) {
-                            "✅ Google Docs থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন সিঙ্ক হয়েছে!"
+                            "✅ Google Docs থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
                             "✅ Restored $cCount customers & $tCount transactions from Google Docs!"
                         }
@@ -864,18 +1000,25 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             GoogleDocsSyncAction.PULL_FROM_SHEETS -> {
-                val resolvedSheetId = customDocIdInput?.takeIf { it.isNotBlank() }
+                var resolvedSheetId = customDocIdInput?.takeIf { it.isNotBlank() }
                     ?.let { GoogleDocsSyncService.extractSheetIdFromInput(it) }
                     ?: currentSettings.syncedGoogleSheetId
+
+                // Auto-discover latest backup Google Sheet from Drive when no ID is manually entered
                 if (resolvedSheetId.isBlank()) {
-                    _isSyncingGoogleDocs.value = false
-                    _statusBannerMessage.value = if (isBn) {
-                        "❌ অনুগ্রহ করে প্রথমে Google Sheet ID বা লিংক দিন"
-                    } else {
-                        "❌ Please enter a Google Sheet ID or link first"
-                    }
+                    resolvedSheetId = GoogleDocsSyncService.findLatestBackupSheetId(accessToken).orEmpty()
+                }
+
+                // If still blank, try auto-discovering across both Sheets and Docs
+                if (resolvedSheetId.isBlank()) {
+                    executeAuthorizedGoogleDocsSync(
+                        accessToken = accessToken,
+                        action = GoogleDocsSyncAction.AUTO_RESTORE,
+                        customDocIdInput = null
+                    )
                     return
                 }
+
                 val hadPendingOffline = currentSettings.hasPendingCloudSync
                 val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleSheet(
                     accessToken = accessToken,
@@ -902,7 +1045,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         _isSyncingGoogleDocs.value = false
                         _statusBannerMessage.value = if (isBn) {
-                            "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন সিঙ্ক হয়েছে!"
+                            "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
                             "✅ Restored $cCount customers & $tCount transactions from Google Sheets!"
                         }
@@ -1070,7 +1213,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     repository.importBackupJson(text)
                 }
                 result.onSuccess { (cCount, tCount) ->
-                    _statusBannerMessage.value = "✅ $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                    _isSyncFailedOfflineMode.value = false
+                    val isBn = uiState.value.settings.language != "EN"
+                    _statusBannerMessage.value = if (isBn) {
+                        "✅ $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                    } else {
+                        "✅ Restored $cCount customers & $tCount transactions!"
+                    }
                 }.onFailure { err ->
                     _statusBannerMessage.value = "❌ JSON ইমপোর্ট ত্রুটি: ${err.localizedMessage}"
                 }

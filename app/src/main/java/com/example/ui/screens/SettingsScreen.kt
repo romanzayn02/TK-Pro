@@ -71,6 +71,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +91,7 @@ import com.example.ui.AppStrings
 import com.example.ui.GoogleDocsSyncAction
 import com.example.ui.LedgerViewModel
 import com.example.ui.LocalizationProvider
+import com.example.ui.components.ConfirmActionDialog
 import com.example.ui.components.LiquidFilterChip
 import com.example.ui.components.LiquidGlassCard
 import com.example.ui.components.SpringyLiquidButton
@@ -134,6 +136,22 @@ fun SettingsScreen(
     var showDocsSection by remember { mutableStateOf(false) }
     var showSheetsSection by remember { mutableStateOf(false) }
     var showAccessErrorHelp by remember { mutableStateOf(false) }
+    var categoryToDelete by remember { mutableStateOf<String?>(null) }
+
+    val pendingWelcomeRestore by viewModel.pendingWelcomeCloudRestore.collectAsStateWithLifecycle()
+
+    val googleDocsConsentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        signedInEmail = GoogleDocsSyncService.getSignedInEmail(context)
+        viewModel.onGoogleDocsConsentResult(
+            context = context,
+            intent = result.data,
+            action = pendingSyncAction,
+            customDocIdInput = pendingCustomDocId,
+            onNeedsSignInIntent = { _, _, _ -> }
+        )
+    }
 
     val scopeConsentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -144,6 +162,13 @@ fun SettingsScreen(
             intent = result.data,
             action = pendingSyncAction,
             customDocIdInput = pendingCustomDocId,
+            onNeedsConsent = { intentSender, action, docId ->
+                pendingSyncAction = action
+                pendingCustomDocId = docId
+                googleDocsConsentLauncher.launch(
+                    IntentSenderRequest.Builder(intentSender).build()
+                )
+            },
             onNeedsSignInIntent = { _, _, _ -> }
         )
     }
@@ -157,6 +182,13 @@ fun SettingsScreen(
             intent = result.data,
             action = pendingSyncAction,
             customDocIdInput = pendingCustomDocId,
+            onNeedsConsent = { intentSender, action, docId ->
+                pendingSyncAction = action
+                pendingCustomDocId = docId
+                googleDocsConsentLauncher.launch(
+                    IntentSenderRequest.Builder(intentSender).build()
+                )
+            },
             onNeedsSignInIntent = { recoverIntent, action, docId ->
                 pendingSyncAction = action
                 pendingCustomDocId = docId
@@ -165,21 +197,27 @@ fun SettingsScreen(
         )
     }
 
-    val googleDocsConsentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        signedInEmail = GoogleDocsSyncService.getSignedInEmail(context)
-        viewModel.onGoogleDocsConsentResult(
-            context = context,
-            intent = result.data,
-            action = pendingSyncAction,
-            customDocIdInput = pendingCustomDocId,
-            onNeedsSignInIntent = { signInIntent, action, docId ->
-                pendingSyncAction = action
-                pendingCustomDocId = docId
-                googleSignInLauncher.launch(signInIntent)
-            }
-        )
+    LaunchedEffect(pendingWelcomeRestore) {
+        if (pendingWelcomeRestore) {
+            viewModel.consumePendingWelcomeCloudRestore()
+            viewModel.performGoogleDocsSync(
+                context = context,
+                action = GoogleDocsSyncAction.AUTO_RESTORE,
+                customDocIdInput = null,
+                onNeedsConsent = { intentSender, action, docId ->
+                    pendingSyncAction = action
+                    pendingCustomDocId = docId
+                    googleDocsConsentLauncher.launch(
+                        IntentSenderRequest.Builder(intentSender).build()
+                    )
+                },
+                onNeedsSignInIntent = { signInIntent, action, docId ->
+                    pendingSyncAction = action
+                    pendingCustomDocId = docId
+                    googleSignInLauncher.launch(signInIntent)
+                }
+            )
+        }
     }
 
     val exportJsonLauncher = rememberLauncherForActivityResult(
@@ -828,43 +866,83 @@ fun SettingsScreen(
                         }
                     }
 
-                    // 3. Compact Account & 403 Fix Row
+                    // 3. Compact Account Login, 1-Tap Cloud Auto-Restore & 403 Fix Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         LiquidFilterChip(
-                            label = signedInEmail ?: if (strings.isBn) "Google অ্যাকাউন্ট" else "Google Account",
-                            selected = false,
+                            label = signedInEmail ?: if (strings.isBn) "Google লগইন" else "Google Login",
+                            selected = !signedInEmail.isNullOrBlank(),
                             onClick = {
-                                viewModel.switchGoogleAccountForDocsSync(
-                                    context = context,
-                                    action = GoogleDocsSyncAction.PUSH_TO_DOCS,
-                                    customDocIdInput = customDocInput,
-                                    onLaunchSignInIntent = { signInIntent, action, docId ->
-                                        pendingSyncAction = action
-                                        pendingCustomDocId = docId
-                                        googleSignInLauncher.launch(signInIntent)
-                                    }
-                                )
+                                if (!isSyncingDocs) {
+                                    viewModel.switchGoogleAccountForDocsSync(
+                                        context = context,
+                                        action = GoogleDocsSyncAction.SIGN_IN_ONLY,
+                                        customDocIdInput = null,
+                                        onLaunchSignInIntent = { signInIntent, action, docId ->
+                                            pendingSyncAction = action
+                                            pendingCustomDocId = docId
+                                            googleSignInLauncher.launch(signInIntent)
+                                        }
+                                    )
+                                }
                             },
                             useDarkGlass = useDarkGlass,
-                            accentColor = TallyCyanRefraction,
+                            accentColor = if (!signedInEmail.isNullOrBlank()) TallyEmeraldGreen else TallyCyanRefraction,
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.AccountCircle,
                                     contentDescription = null,
                                     modifier = Modifier.size(15.dp),
-                                    tint = TallyCyanRefraction
+                                    tint = if (!signedInEmail.isNullOrBlank()) Color.White else TallyCyanRefraction
                                 )
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1.1f),
                             testTag = "switch_google_account_button"
                         )
 
                         LiquidFilterChip(
-                            label = if (strings.isBn) "403 অ্যাক্সেস" else "403 Fix",
+                            label = if (strings.isBn) "অটো রিস্টোর" else "Auto Restore",
+                            selected = false,
+                            onClick = {
+                                if (!isSyncingDocs) {
+                                    viewModel.performGoogleDocsSync(
+                                        context = context,
+                                        action = GoogleDocsSyncAction.AUTO_RESTORE,
+                                        customDocIdInput = null,
+                                        onNeedsConsent = { intentSender, action, docId ->
+                                            pendingSyncAction = action
+                                            pendingCustomDocId = docId
+                                            googleDocsConsentLauncher.launch(
+                                                IntentSenderRequest.Builder(intentSender).build()
+                                            )
+                                        },
+                                        onNeedsSignInIntent = { signInIntent, action, docId ->
+                                            pendingSyncAction = action
+                                            pendingCustomDocId = docId
+                                            googleSignInLauncher.launch(signInIntent)
+                                        }
+                                    )
+                                }
+                            },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyEmeraldGreen,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDownload,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = TallyEmeraldGreen
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            testTag = "auto_cloud_restore_button"
+                        )
+
+                        LiquidFilterChip(
+                            label = if (strings.isBn) "403" else "403 Fix",
                             selected = showAccessErrorHelp,
                             onClick = { showAccessErrorHelp = !showAccessErrorHelp },
                             useDarkGlass = useDarkGlass,
@@ -1502,7 +1580,7 @@ fun SettingsScreen(
                             LiquidFilterChip(
                                 label = "$cat  ✕",
                                 selected = false,
-                                onClick = { viewModel.removeCustomCategory(cat) },
+                                onClick = { categoryToDelete = cat },
                                 useDarkGlass = useDarkGlass,
                                 accentColor = TallyGoldAccent
                             )
@@ -1624,6 +1702,28 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    categoryToDelete?.let { cat ->
+        ConfirmActionDialog(
+            title = if (strings.isBn) "খাত মুছে ফেলবেন?" else "Remove Category?",
+            message = if (strings.isBn) {
+                "\"$cat\" খাতটি তালিকা থেকে মুছে ফেলতে চান?"
+            } else {
+                "Do you want to remove \"$cat\" from your custom categories?"
+            },
+            confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Remove",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyGoldAccent,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                viewModel.removeCustomCategory(cat)
+                categoryToDelete = null
+            },
+            onDismiss = { categoryToDelete = null },
+            confirmTestTag = "confirm_remove_category_button",
+            cancelTestTag = "cancel_remove_category_button"
+        )
     }
 }
 

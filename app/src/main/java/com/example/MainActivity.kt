@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MenuBook
@@ -78,6 +79,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,6 +152,9 @@ fun TallyKhataProApp(
     var isDashboardSearching by remember { mutableStateOf(false) }
     var manualWelcomeStartStep by remember { mutableStateOf<Int?>(null) }
     var isBiometricUnlocked by remember { mutableStateOf(false) }
+    var showExitConfirmDialog by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
 
     val showWelcomeDialog = manualWelcomeStartStep != null ||
         (uiState.settings.isSettingsLoaded && !uiState.settings.isSetupCompleted && uiState.customersWithBalance.isEmpty())
@@ -169,6 +174,21 @@ fun TallyKhataProApp(
         viewModel.selectTab(MainTab.DASHBOARD)
     }
 
+    // Intercept Back on Dashboard home screen to confirm exit
+    androidx.activity.compose.BackHandler(
+        enabled = !showWelcomeDialog && !showBiometricLock &&
+            uiState.selectedCustomerDetail == null &&
+            uiState.currentTab == MainTab.DASHBOARD &&
+            !showAddCustomerSheet &&
+            activeTxSheetConfig == null &&
+            editingTransaction == null &&
+            activeSmsCustomer == null &&
+            viewingReceiptPath == null &&
+            !isDashboardSearching
+    ) {
+        showExitConfirmDialog = true
+    }
+
     // Auto-dismiss status banner after 3.5 seconds
     LaunchedEffect(uiState.statusBannerMessage) {
         if (uiState.statusBannerMessage != null) {
@@ -178,6 +198,31 @@ fun TallyKhataProApp(
     }
 
     LiquidGlassBackdrop(useDarkGlass = useDarkGlass) {
+        if (showExitConfirmDialog) {
+            val exitTitle = if (strings.isBn) "অ্যাপ থেকে বের হতে চান?" else "Exit TK Pro?"
+            val exitMsg = if (strings.isBn) {
+                "আপনি কি নিশ্চিতভাবে অ্যাপ থেকে বের হতে চান? আপনার সকল হিসাব ও লেনদেন নিরাপদে সেভ রয়েছে।"
+            } else {
+                "Are you sure you want to exit the app? All your ledger transactions are securely saved."
+            }
+
+            com.example.ui.components.ConfirmActionDialog(
+                title = exitTitle,
+                message = exitMsg,
+                confirmLabel = if (strings.isBn) "বের হন" else "Exit",
+                cancelLabel = if (strings.isBn) "থাক" else "Cancel",
+                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                accentColor = TallyRubyRed,
+                useDarkGlass = useDarkGlass,
+                onConfirm = {
+                    (context as? android.app.Activity)?.finish()
+                },
+                onDismiss = { showExitConfirmDialog = false },
+                confirmTestTag = "confirm_exit_app_button",
+                cancelTestTag = "cancel_exit_app_button"
+            )
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             when {
                 showBiometricLock -> {
@@ -218,6 +263,7 @@ fun TallyKhataProApp(
                         },
                         onRestoreFromCloudShortcut = {
                             manualWelcomeStartStep = null
+                            viewModel.requestCloudRestoreFromWelcome()
                             viewModel.selectTab(MainTab.SETTINGS)
                         },
                         onCompleteSetup = { bName, oPhone, cSym, lang, accType, firstCustName, firstCustPhone, firstCustPartyType, openDebit, openCredit ->

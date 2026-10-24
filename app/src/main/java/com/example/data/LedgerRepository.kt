@@ -393,20 +393,42 @@ class LedgerRepository(
 
     suspend fun importBackupJson(jsonContent: String): Result<Pair<Int, Int>> {
         return try {
-            val root = JSONObject(jsonContent)
+            val cleanJson = run {
+                val startMarker = GoogleDocsSyncService.SYNC_START_MARKER
+                val endMarker = GoogleDocsSyncService.SYNC_END_MARKER
+                val sIdx = jsonContent.indexOf(startMarker)
+                val eIdx = jsonContent.indexOf(endMarker)
+                if (sIdx >= 0 && eIdx > sIdx) {
+                    jsonContent.substring(sIdx + startMarker.length, eIdx).trim()
+                } else {
+                    val firstBrace = jsonContent.indexOf('{')
+                    val lastBrace = jsonContent.lastIndexOf('}')
+                    if (firstBrace >= 0 && lastBrace > firstBrace) {
+                        jsonContent.substring(firstBrace, lastBrace + 1).trim()
+                    } else {
+                        jsonContent.trim()
+                    }
+                }
+            }
+
+            val root = JSONObject(cleanJson)
             val customersJson = root.optJSONArray("customers") ?: JSONArray()
             val transactionsJson = root.optJSONArray("transactions") ?: JSONArray()
 
             val customers = mutableListOf<CustomerEntity>()
+            var maxCustomerId = 0L
             for (i in 0 until customersJson.length()) {
                 val obj = customersJson.getJSONObject(i)
+                val rawId = obj.optLong("id", 0L)
+                val resolvedId = if (rawId > 0L) rawId else (maxCustomerId + 1L)
+                if (resolvedId > maxCustomerId) maxCustomerId = resolvedId
                 customers.add(
                     CustomerEntity(
-                        id = obj.getLong("id"),
-                        name = obj.optString("name", "Customer"),
-                        phone = obj.optString("phone", ""),
-                        partyType = obj.optString("partyType", "CUSTOMER"),
-                        address = obj.optString("address", ""),
+                        id = resolvedId,
+                        name = obj.optString("name", "Customer").trim().ifEmpty { "Customer" },
+                        phone = obj.optString("phone", "").trim(),
+                        partyType = obj.optString("partyType", "CUSTOMER").ifBlank { "CUSTOMER" },
+                        address = obj.optString("address", "").trim(),
                         avatarColorHex = obj.optLong("avatarColorHex", 0xFF0091EA),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
@@ -415,17 +437,21 @@ class LedgerRepository(
             }
 
             val transactions = mutableListOf<TransactionEntity>()
+            var maxTxId = 0L
             for (i in 0 until transactionsJson.length()) {
                 val obj = transactionsJson.getJSONObject(i)
                 val rawReceipt = if (obj.isNull("receiptUri")) null else obj.optString("receiptUri")
+                val rawTxId = obj.optLong("id", 0L)
+                val resolvedTxId = if (rawTxId > 0L) rawTxId else (maxTxId + 1L)
+                if (resolvedTxId > maxTxId) maxTxId = resolvedTxId
                 transactions.add(
                     TransactionEntity(
-                        id = obj.getLong("id"),
+                        id = resolvedTxId,
                         customerId = obj.getLong("customerId"),
-                        type = obj.optString("type", "DEBIT"),
+                        type = obj.optString("type", "DEBIT").ifBlank { "DEBIT" },
                         amount = obj.optDouble("amount", 0.0),
-                        category = obj.optString("category", "অন্যান্য"),
-                        paymentMethod = obj.optString("paymentMethod", "CASH"),
+                        category = obj.optString("category", "অন্যান্য").ifBlank { "অন্যান্য" },
+                        paymentMethod = obj.optString("paymentMethod", "CASH").ifBlank { "CASH" },
                         note = obj.optString("note", ""),
                         receiptUri = rawReceipt?.takeIf { it.isNotBlank() && it != "null" },
                         timestamp = obj.optLong("timestamp", System.currentTimeMillis())
@@ -438,52 +464,95 @@ class LedgerRepository(
                 val bName = sObj.optString("businessName")
                 val oPhone = sObj.optString("ownerPhone")
                 val cSymbol = sObj.optString("currencySymbol")
-                updateBusinessSettings(
-                    businessName = bName,
-                    ownerPhone = oPhone,
-                    currencySymbol = cSymbol.ifBlank { "৳" },
-                    accountType = accType
-                )
+                val lang = sObj.optString("language")
+                val catsArray = sObj.optJSONArray("customCategories")
+                val importedCats = mutableListOf<String>()
+                if (catsArray != null) {
+                    for (idx in 0 until catsArray.length()) {
+                        val c = catsArray.optString(idx).trim()
+                        if (c.isNotEmpty() && c !in importedCats) importedCats.add(c)
+                    }
+                }
+                context.dataStore.edit { prefs ->
+                    prefs[Keys.ACCOUNT_TYPE] = accType
+                    if (bName.isNotBlank()) prefs[Keys.BUSINESS_NAME] = bName.trim()
+                    if (oPhone.isNotBlank()) prefs[Keys.OWNER_PHONE] = oPhone.trim()
+                    if (cSymbol.isNotBlank()) prefs[Keys.CURRENCY_SYMBOL] = cSymbol.trim()
+                    if (lang == "BN" || lang == "EN") prefs[Keys.LANGUAGE] = lang
+                    if (importedCats.size >= 2) {
+                        prefs[Keys.CUSTOM_CATEGORIES] = importedCats.joinToString("|")
+                    }
+                    prefs[Keys.IS_SETUP_COMPLETED] = true
+                    prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false
+                    prefs[Keys.LAST_SYNC_ERROR] = ""
+                }
             } ?: run {
                 context.dataStore.edit { prefs ->
                     prefs[Keys.IS_SETUP_COMPLETED] = true
+                    prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false
+                    prefs[Keys.LAST_SYNC_ERROR] = ""
                 }
             }
 
-            // Preserve any unsynced local offline customers & transactions so they are never lost
+            // Preserve any unsynced local offline customers & transactions safely without ID or FK conflicts
             val currentPrefs = context.dataStore.data.first()
-            val hasPendingOffline = currentPrefs[Keys.HAS_PENDING_CLOUD_SYNC] ?: false
             val lastSyncMillis = maxOf(
                 currentPrefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
                 currentPrefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
             )
-            if (hasPendingOffline) {
+            if (lastSyncMillis > 0L) {
                 val localCustomers = dao.getAllCustomersSnapshot()
                 val localTransactions = dao.getAllTransactionsSnapshot()
                 val cloudCustomerIds = customers.map { it.id }.toMutableSet()
+                val cloudCustomerIdentityMap = customers.associateBy {
+                    "${it.name.trim().lowercase()}_${it.phone.trim()}"
+                }.toMutableMap()
+                val localToMergedCustomerId = mutableMapOf<Long, Long>()
+
+                for (localCustomer in localCustomers) {
+                    val identityKey = "${localCustomer.name.trim().lowercase()}_${localCustomer.phone.trim()}"
+                    val existingCloud = cloudCustomerIdentityMap[identityKey]
+                    if (existingCloud != null) {
+                        localToMergedCustomerId[localCustomer.id] = existingCloud.id
+                    } else if (localCustomer.createdAt > lastSyncMillis) {
+                        val newId = if (localCustomer.id !in cloudCustomerIds) {
+                            localCustomer.id
+                        } else {
+                            ++maxCustomerId
+                        }
+                        val mergedCust = localCustomer.copy(id = newId)
+                        customers.add(mergedCust)
+                        cloudCustomerIds.add(newId)
+                        cloudCustomerIdentityMap[identityKey] = mergedCust
+                        localToMergedCustomerId[localCustomer.id] = newId
+                    }
+                }
+
                 val cloudTxKeys = transactions.map {
                     "${it.customerId}_${it.type}_${it.amount}_${it.timestamp}_${it.note}"
                 }.toMutableSet()
                 val cloudTxIds = transactions.map { it.id }.toMutableSet()
 
-                for (localCustomer in localCustomers) {
-                    if (localCustomer.id !in cloudCustomerIds && localCustomer.createdAt > lastSyncMillis) {
-                        customers.add(localCustomer)
-                        cloudCustomerIds.add(localCustomer.id)
-                    }
-                }
                 for (localTx in localTransactions) {
-                    val key = "${localTx.customerId}_${localTx.type}_${localTx.amount}_${localTx.timestamp}_${localTx.note}"
-                    if (key !in cloudTxKeys && (localTx.timestamp > lastSyncMillis || localTx.id !in cloudTxIds)) {
-                        val ensuredId = if (localTx.id in cloudTxIds) 0L else localTx.id
-                        transactions.add(localTx.copy(id = ensuredId))
+                    val targetCustomerId = localToMergedCustomerId[localTx.customerId]
+                        ?: localTx.customerId.takeIf { it in cloudCustomerIds }
+                        ?: continue
+                    val key = "${targetCustomerId}_${localTx.type}_${localTx.amount}_${localTx.timestamp}_${localTx.note}"
+                    if (key !in cloudTxKeys && localTx.timestamp > lastSyncMillis) {
+                        val ensuredId = if (localTx.id !in cloudTxIds) localTx.id else ++maxTxId
+                        transactions.add(localTx.copy(id = ensuredId, customerId = targetCustomerId))
+                        cloudTxIds.add(ensuredId)
                         cloudTxKeys.add(key)
                     }
                 }
             }
 
-            dao.replaceFullDatabase(customers, transactions)
-            Result.success(customers.size to transactions.size)
+            // Guarantee foreign-key integrity before replacing database
+            val validCustomerIds = customers.map { it.id }.toSet()
+            val safeTransactions = transactions.filter { it.customerId in validCustomerIds }
+
+            dao.replaceFullDatabase(customers, safeTransactions)
+            Result.success(customers.size to safeTransactions.size)
         } catch (e: Exception) {
             Result.failure(e)
         }

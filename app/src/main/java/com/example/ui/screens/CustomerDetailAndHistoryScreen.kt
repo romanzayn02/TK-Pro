@@ -39,7 +39,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +57,7 @@ import com.example.data.TransactionEntity
 import com.example.data.TransactionWithCustomer
 import com.example.ui.AppStrings
 import com.example.ui.LocalizationProvider
+import com.example.ui.components.ConfirmActionDialog
 import com.example.ui.components.LiquidGlassCard
 import com.example.ui.components.SpringyLiquidButton
 import com.example.ui.theme.TallyCyanRefraction
@@ -281,6 +285,9 @@ fun CustomerDetailScreen(
         else -> TallyCyanRefraction
     }
 
+    var showDeleteCustomerConfirm by remember { mutableStateOf(false) }
+    var pendingDeleteTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
+
     val runningBalancesMap = remember(transactions) {
         val chronologicalList = transactions.sortedWith(compareBy<TransactionEntity> { it.timestamp }.thenBy { it.id })
         var currentRunning = 0.0
@@ -397,7 +404,7 @@ fun CustomerDetailScreen(
                                 }
 
                                 IconButton(
-                                    onClick = onDeleteCustomer,
+                                    onClick = { showDeleteCustomerConfirm = true },
                                     modifier = Modifier
                                         .size(38.dp)
                                         .clip(CircleShape)
@@ -564,7 +571,7 @@ fun CustomerDetailScreen(
                         useDarkGlass = useDarkGlass,
                         onViewReceipt = onViewReceipt,
                         onEdit = { onEditTransaction(tx) },
-                        onDelete = { onDeleteTransaction(tx.id) }
+                        onDelete = { pendingDeleteTransaction = tx }
                     )
                 }
             }
@@ -628,6 +635,63 @@ fun CustomerDetailScreen(
             }
         }
     }
+
+    if (showDeleteCustomerConfirm) {
+        val deleteCustomerTitle = if (strings.isBn) {
+            if (strings.isIndividual) "হিসাব মুছে ফেলবেন?" else "কাস্টমার মুছে ফেলবেন?"
+        } else {
+            if (strings.isIndividual) "Delete Person / Account?" else "Delete Customer?"
+        }
+        val deleteCustomerMsg = if (strings.isBn) {
+            "\"${customer.name}\"-এর প্রোফাইল এবং এর সাথে যুক্ত সকল লেনদেন স্থায়ীভাবে মুছে যাবে। আপনি কি নিশ্চিত?"
+        } else {
+            "All transaction history and details for \"${customer.name}\" will be permanently deleted. Are you sure?"
+        }
+
+        ConfirmActionDialog(
+            title = deleteCustomerTitle,
+            message = deleteCustomerMsg,
+            confirmLabel = if (strings.isBn) "হ্যাঁ, মুছে ফেলুন" else "Delete",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyRubyRed,
+            useDarkGlass = useDarkGlass,
+            onConfirm = onDeleteCustomer,
+            onDismiss = { showDeleteCustomerConfirm = false },
+            confirmTestTag = "confirm_delete_customer_button",
+            cancelTestTag = "cancel_delete_customer_button"
+        )
+    }
+
+    pendingDeleteTransaction?.let { txToDelete ->
+        val txTypeName = if (txToDelete.type == "DEBIT") {
+            if (strings.isBn) "বাকি / প্রদান" else "Debit"
+        } else {
+            if (strings.isBn) "জমা / পরিশোধ" else "Credit"
+        }
+        val txAmountStr = LocalizationProvider.formatAmount(txToDelete.amount, currency, strings.isBn)
+        val deleteTxTitle = if (strings.isBn) "লেনদেন মুছে ফেলবেন?" else "Delete Transaction?"
+        val deleteTxMsg = if (strings.isBn) {
+            "$txTypeName ($txAmountStr)-এর এই এন্ট্রিটি স্থায়ীভাবে মুছে ফেলতে চান? এটি অ্যাকাউন্টের মোট ব্যালেন্সে প্রভাব ফেলবে।"
+        } else {
+            "Permanently delete this $txTypeName entry of $txAmountStr? This will adjust the account balance."
+        }
+
+        ConfirmActionDialog(
+            title = deleteTxTitle,
+            message = deleteTxMsg,
+            confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Delete",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyRubyRed,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                onDeleteTransaction(txToDelete.id)
+                pendingDeleteTransaction = null
+            },
+            onDismiss = { pendingDeleteTransaction = null },
+            confirmTestTag = "confirm_delete_transaction_button",
+            cancelTestTag = "cancel_delete_transaction_button"
+        )
+    }
 }
 
 @Composable
@@ -673,6 +737,7 @@ fun TransactionHistoryScreen(
     onOpenCustomerDetail: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var pendingDeleteTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
     val runningBalancesMap = remember(transactionsWithCustomer) {
         val byCustomer = transactionsWithCustomer.groupBy { it.transaction.customerId }
         val map = mutableMapOf<Long, Double>()
@@ -762,11 +827,42 @@ fun TransactionHistoryScreen(
                     useDarkGlass = useDarkGlass,
                     onViewReceipt = onViewReceipt,
                     onEdit = { onEditTransaction(item.transaction) },
-                    onDelete = { onDeleteTransaction(item.transaction.id) },
+                    onDelete = { pendingDeleteTransaction = item.transaction },
                     onCardClick = { onOpenCustomerDetail(item.transaction.customerId) }
                 )
             }
         }
+    }
+
+    pendingDeleteTransaction?.let { txToDelete ->
+        val txTypeName = if (txToDelete.type == "DEBIT") {
+            if (strings.isBn) "বাকি / প্রদান" else "Debit"
+        } else {
+            if (strings.isBn) "জমা / পরিশোধ" else "Credit"
+        }
+        val txAmountStr = LocalizationProvider.formatAmount(txToDelete.amount, currency, strings.isBn)
+        val deleteTxTitle = if (strings.isBn) "লেনদেন মুছে ফেলবেন?" else "Delete Transaction?"
+        val deleteTxMsg = if (strings.isBn) {
+            "$txTypeName ($txAmountStr)-এর এই এন্ট্রিটি স্থায়ীভাবে মুছে ফেলতে চান? এটি অ্যাকাউন্টের মোট ব্যালেন্সে প্রভাব ফেলবে।"
+        } else {
+            "Permanently delete this $txTypeName entry of $txAmountStr? This will adjust the account balance."
+        }
+
+        ConfirmActionDialog(
+            title = deleteTxTitle,
+            message = deleteTxMsg,
+            confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Delete",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyRubyRed,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                onDeleteTransaction(txToDelete.id)
+                pendingDeleteTransaction = null
+            },
+            onDismiss = { pendingDeleteTransaction = null },
+            confirmTestTag = "confirm_delete_history_transaction_button",
+            cancelTestTag = "cancel_delete_history_transaction_button"
+        )
     }
 }
 

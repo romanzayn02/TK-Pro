@@ -1,36 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Frosted Glass Ledger Book Back Cover -->
+
+    <!-- Soft Drop Shadow Under Open Halkhata Book -->
     <path
-        android:fillColor="#33FFFFFF"
-        android:pathData="M34,26 C34,22.686 36.686,20 40,20 L74,20 C77.314,20 80,22.686 80,26 L80,82 C80,85.314 77.314,88 74,88 L40,88 C36.686,88 34,85.314 34,82 Z" />
-    <!-- Ledger Spine Accent in Ruby Red (Tallykhata inspired) -->
+        android:fillColor="#40000000"
+        android:pathData="M24,33 C24,29 27,27 31,27 L54,30 L77,27 C81,27 84,29 84,33 L84,76 C84,80 81,83 77,83 L54,86 L31,83 C27,83 24,80 24,76 Z" />
+
+    <!-- Left Page (Royal Ruby Red Cover) -->
+    <path android:pathData="M24,31 C24,27 27,25 31,25 L52,28 L52,82 L31,79 C27,79 24,76 24,72 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="24"
+                android:startY="25"
+                android:endX="52"
+                android:endY="82"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFF2A54" />
+                <item android:offset="1.0" android:color="#FFB71C1C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Right Page (Frosted Ivory/Glass Ledger Sheet) -->
     <path
-        android:fillColor="#FFFF2A54"
-        android:pathData="M30,26 C30,22.686 32.686,20 36,20 L41,20 L41,88 L36,88 C32.686,88 30,85.314 30,82 Z" />
-    <!-- Main Ledger Cover with High-Contrast Glass Border -->
+        android:fillColor="#F5FFFFFF"
+        android:pathData="M56,28 L77,25 C81,25 84,27 84,31 L84,72 C84,76 81,79 77,79 L56,82 Z" />
+
+    <!-- Center 24K Gold Binding Spine -->
+    <path android:pathData="M51,26 L57,26 L57,84 L51,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="51"
+                android:startY="26"
+                android:endX="57"
+                android:endY="84"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFE082" />
+                <item android:offset="0.5" android:color="#FFFFCA28" />
+                <item android:offset="1.0" android:color="#FFFF8F00" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Left Page Gold Medallion Seal -->
     <path
-        android:fillColor="#E6FFFFFF"
-        android:pathData="M41,20 L72,20 C75.314,20 78,22.686 78,26 L78,82 C78,85.314 75.314,88 72,88 L41,88 Z" />
-    <!-- Emerald Green Receivable Upward Badge -->
+        android:fillColor="#FFFFD54F"
+        android:pathData="M38,48m-9.5,0a9.5,9.5 0,1 1,19 0a9.5,9.5 0,1 1,-19 0" />
+    <path
+        android:fillColor="#FF880E4F"
+        android:pathData="M34.2,43.2 L41.8,43.2 L41.8,45.6 L39.2,45.6 L39.2,53.5 L36.8,53.5 L36.8,45.6 L34.2,45.6 Z" />
+
+    <!-- Right Page Green, Navy & Ruby Transaction Bars -->
     <path
         android:fillColor="#FF00C853"
-        android:pathData="M58,32 m-12,0 a12,12 0,1,1 24,0 a12,12 0,1,1 -24,0" />
+        android:pathData="M61,38 L78,36 L78,40.5 L61,42.5 Z" />
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M58,25 L64,31 L60.5,31 L60.5,38 L55.5,38 L55.5,31 L52,31 Z" />
-    <!-- Ledger Entry Lines -->
-    <path
-        android:fillColor="#FF1B263B"
-        android:pathData="M47,52 L69,52 C70.1,52 71,52.9 71,54 C71,55.1 70.1,56 69,56 L47,56 C45.9,56 45,55.1 45,54 C45,52.9 45.9,52 47,52 Z" />
-    <path
-        android:fillColor="#FF00B0FF"
-        android:pathData="M47,62 L63,62 C64.1,62 65,62.9 65,64 C65,65.1 64.1,66 63,66 L47,66 C45.9,66 45,65.1 45,64 C45,62.9 45.9,62 47,62 Z" />
+        android:fillColor="#FF1E293B"
+        android:pathData="M61,48 L75,46.5 L75,51 L61,52.5 Z" />
     <path
         android:fillColor="#FFFF2A54"
-        android:pathData="M47,72 L58,72 C59.1,72 60,72.9 60,74 C60,75.1 59.1,76 58,76 L47,76 C45.9,76 45,75.1 45,74 C45,72.9 45.9,72 47,72 Z" />
+        android:pathData="M61,58 L71,56.8 L71,61.3 L61,62.5 Z" />
+
+    <!-- Rising Gold & Emerald Checkmark Coin at Top Center -->
+    <path
+        android:fillColor="#FF00E676"
+        android:pathData="M54,26m-10.5,0a10.5,10.5 0,1 1,21 0a10.5,10.5 0,1 1,-21 0"
+        android:strokeWidth="2.0"
+        android:strokeColor="#FFFFD54F" />
+    <path
+        android:fillColor="#FF051911"
+        android:pathData="M51.5,30.2 L47.8,26.5 L49.6,24.7 L51.5,26.6 L58.2,19.9 L60.0,21.7 Z" />
 </vector>

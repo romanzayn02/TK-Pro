@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.accounts.Account
+import android.accounts.AccountManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentSender
@@ -15,6 +16,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,10 +48,16 @@ data class GoogleDocsSyncResult(
     val transactionCount: Int
 )
 
+data class DiscoveredCloudBackup(
+    val id: String,
+    val isSpreadsheet: Boolean,
+    val jsonPayload: String
+)
+
 /**
- * Handles Google OAuth2 authorization (`documents` & `drive.file` scopes) via Play Services
- * AuthorizationClient with an automatic GoogleSignIn + GoogleAuthUtil fallback, and performs
- * live two-way sync with a Google Docs document.
+ * Handles Google OAuth2 authorization (`documents`, `spreadsheets`, & `drive.file` scopes) via
+ * Android AccountManager + GoogleAuthUtil + Play Services Identity AuthorizationClient, and performs
+ * live two-way sync and auto-discovery restore with Google Docs and Google Sheets.
  */
 object GoogleDocsSyncService {
 
@@ -58,9 +66,12 @@ object GoogleDocsSyncService {
     private const val SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
     private const val OAUTH_SCOPE_STRING = "oauth2:$SCOPE_DOCS $SCOPE_SPREADSHEETS $SCOPE_DRIVE_FILE"
 
-    private const val SYNC_START_MARKER = "===TALLYKHATA_SYNC_JSON_START==="
-    private const val SYNC_END_MARKER = "===TALLYKHATA_SYNC_JSON_END==="
-    private const val SHEET_SYNC_ROW_MARKER = "===TALLYKHATA_SHEET_SYNC_JSON==="
+    const val SYNC_START_MARKER = "===TALLYKHATA_SYNC_JSON_START==="
+    const val SYNC_END_MARKER = "===TALLYKHATA_SYNC_JSON_END==="
+    const val SHEET_SYNC_ROW_MARKER = "===TALLYKHATA_SHEET_SYNC_JSON==="
+
+    private const val AUTH_PREFS_NAME = "tkpro_google_auth_prefs"
+    private const val KEY_SIGNED_IN_EMAIL = "signed_in_google_email"
 
     private val httpClient = OkHttpClient()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -80,18 +91,73 @@ object GoogleDocsSyncService {
         return builder.build()
     }
 
+    private fun saveSignedInEmail(context: Context, email: String?) {
+        val prefs = context.getSharedPreferences(AUTH_PREFS_NAME, Context.MODE_PRIVATE)
+        if (email.isNullOrBlank()) {
+            prefs.edit().remove(KEY_SIGNED_IN_EMAIL).apply()
+        } else {
+            prefs.edit().putString(KEY_SIGNED_IN_EMAIL, email.trim()).apply()
+        }
+    }
+
     @Suppress("DEPRECATION")
     fun getSignedInEmail(context: Context): String? {
-        return GoogleSignIn.getLastSignedInAccount(context)?.email
+        val prefs = context.getSharedPreferences(AUTH_PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_SIGNED_IN_EMAIL, null)?.trim()
+        if (!saved.isNullOrEmpty()) {
+            return saved
+        }
+        val gsoEmail = GoogleSignIn.getLastSignedInAccount(context)?.email?.trim()
+        if (!gsoEmail.isNullOrEmpty()) {
+            saveSignedInEmail(context, gsoEmail)
+            return gsoEmail
+        }
+        return null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getSavedGoogleAccount(context: Context): Account? {
+        val savedEmail = getSignedInEmail(context)
+        if (!savedEmail.isNullOrBlank()) {
+            return Account(savedEmail, "com.google")
+        }
+        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)?.account
+        if (lastAccount != null && !lastAccount.name.isNullOrBlank()) {
+            saveSignedInEmail(context, lastAccount.name)
+            return lastAccount
+        }
+        return null
+    }
+
+    /**
+     * Uses Android's native system Google Account Picker (`AccountManager.newChooseAccountIntent`)
+     * so account selection never fails with `GoogleSignIn` ApiException code 10.
+     */
+    @Suppress("DEPRECATION")
+    fun buildGoogleSignInIntent(context: Context): Intent {
+        return try {
+            AccountManager.newChooseAccountIntent(
+                null,
+                null,
+                arrayOf("com.google"),
+                null,
+                null,
+                null,
+                null
+            )
+        } catch (_: Exception) {
+            val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+            GoogleSignIn.getClient(context, gsoBuilder.build()).signInIntent
+        }
     }
 
     @Suppress("DEPRECATION")
     suspend fun signOutAndBuildSignInIntent(context: Context): Intent = withContext(Dispatchers.IO) {
-        val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_SPREADSHEETS), Scope(SCOPE_DRIVE_FILE))
-        val client = GoogleSignIn.getClient(context, gsoBuilder.build())
         try {
+            val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+            val client = GoogleSignIn.getClient(context, gsoBuilder.build())
             suspendCancellableCoroutine<Unit> { cont ->
                 client.signOut()
                     .addOnCompleteListener {
@@ -100,65 +166,75 @@ object GoogleDocsSyncService {
             }
         } catch (_: Exception) {
         }
-        client.signInIntent
+        buildGoogleSignInIntent(context)
     }
 
-    @Suppress("DEPRECATION")
-    fun buildGoogleSignInIntent(context: Context): Intent {
-        val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestEmail()
-            .requestScopes(Scope(SCOPE_DOCS), Scope(SCOPE_SPREADSHEETS), Scope(SCOPE_DRIVE_FILE))
-        val client = GoogleSignIn.getClient(context, gsoBuilder.build())
-        return client.signInIntent
-    }
+    private suspend fun requestTokenForAccount(
+        context: Context,
+        account: Account
+    ): GoogleDocsAuthOutcome = withContext(Dispatchers.IO) {
+        saveSignedInEmail(context, account.name)
 
-    @Suppress("DEPRECATION")
-    suspend fun authorizeGoogleDocs(context: Context): GoogleDocsAuthOutcome = withContext(Dispatchers.IO) {
-        // 1. Check if there is already a last signed-in Google account we can get a token for
-        val lastAccount = GoogleSignIn.getLastSignedInAccount(context)?.account
-        if (lastAccount != null) {
-            try {
-                val token = GoogleAuthUtil.getToken(context, lastAccount, OAUTH_SCOPE_STRING)
-                if (!token.isNullOrBlank()) {
-                    return@withContext GoogleDocsAuthOutcome.Authorized(token)
-                }
-            } catch (recoverable: UserRecoverableAuthException) {
-                val recoverIntent = recoverable.intent
-                if (recoverIntent != null) {
-                    return@withContext GoogleDocsAuthOutcome.NeedsSignInIntent(recoverIntent)
-                }
-            } catch (_: Exception) {
-                // Fall through to AuthorizationClient with the selected account
+        // 1. Primary path: GoogleAuthUtil with explicit selected Account
+        try {
+            val token = GoogleAuthUtil.getToken(context, account, OAUTH_SCOPE_STRING)
+            if (!token.isNullOrBlank()) {
+                return@withContext GoogleDocsAuthOutcome.Authorized(token)
             }
-        } else {
-            // Prompt the user to choose which Google account to use first so it doesn't
-            // auto-pick an unauthorized account on multi-account phones
-            return@withContext GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
+        } catch (recoverable: UserRecoverableAuthException) {
+            val recoverIntent = recoverable.intent
+            if (recoverIntent != null) {
+                return@withContext GoogleDocsAuthOutcome.NeedsSignInIntent(recoverIntent)
+            }
+        } catch (_: Exception) {
+            // Fall through to GIS AuthorizationClient
         }
 
-        // 2. Try Play Services Identity AuthorizationClient with the user's chosen account
-        val client: AuthorizationClient = Identity.getAuthorizationClient(context)
-        val request = buildAuthRequest(lastAccount)
+        // 2. Fallback path: Play Services Identity AuthorizationClient
         return@withContext try {
-            val result = awaitAuthorization(client, request)
+            val client: AuthorizationClient = Identity.getAuthorizationClient(context)
+            val result = awaitAuthorization(client, buildAuthRequest(account))
             if (result.hasResolution()) {
                 val pendingIntent = result.pendingIntent
                 if (pendingIntent != null) {
                     GoogleDocsAuthOutcome.NeedsResolution(pendingIntent.intentSender)
                 } else {
-                    GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
+                    GoogleDocsAuthOutcome.Error("Google Cloud permission consent required.")
                 }
             } else {
                 val token = result.accessToken
                 if (!token.isNullOrBlank()) {
                     GoogleDocsAuthOutcome.Authorized(token)
                 } else {
-                    GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
+                    GoogleDocsAuthOutcome.Error("Could not obtain Google Cloud access token.")
                 }
             }
-        } catch (_: Exception) {
-            GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
+        } catch (e: Exception) {
+            GoogleDocsAuthOutcome.Error(
+                e.localizedMessage ?: "Google Cloud authorization failed."
+            )
         }
+    }
+
+    suspend fun authorizeGoogleDocs(context: Context): GoogleDocsAuthOutcome = withContext(Dispatchers.IO) {
+        // 1. Check if we already have a saved or signed-in Google account
+        val savedAccount = getSavedGoogleAccount(context)
+        if (savedAccount != null) {
+            return@withContext requestTokenForAccount(context, savedAccount)
+        }
+
+        // 2. Try silent/GIS AuthorizationClient if the user already authorized this app on device
+        try {
+            val client: AuthorizationClient = Identity.getAuthorizationClient(context)
+            val result = awaitAuthorization(client, buildAuthRequest(null))
+            if (!result.hasResolution() && !result.accessToken.isNullOrBlank()) {
+                return@withContext GoogleDocsAuthOutcome.Authorized(result.accessToken!!)
+            }
+        } catch (_: Exception) {
+        }
+
+        // 3. Otherwise prompt the user to pick their Google account via system AccountPicker
+        return@withContext GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
     }
 
     suspend fun extractTokenFromResolution(
@@ -174,20 +250,28 @@ object GoogleDocsSyncService {
                     return@withContext GoogleDocsAuthOutcome.Authorized(token)
                 }
             } catch (_: Exception) {
-                // Continue to silent re-check or GoogleSignIn fallback
             }
         }
 
-        // Check if authorization succeeded on the backend even if result data was empty
+        val savedAccount = getSavedGoogleAccount(context)
+        if (savedAccount != null) {
+            try {
+                val token = GoogleAuthUtil.getToken(context, savedAccount, OAUTH_SCOPE_STRING)
+                if (!token.isNullOrBlank()) {
+                    return@withContext GoogleDocsAuthOutcome.Authorized(token)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
         try {
-            val checkResult = awaitAuthorization(client, buildAuthRequest())
+            val checkResult = awaitAuthorization(client, buildAuthRequest(savedAccount))
             if (!checkResult.hasResolution() && !checkResult.accessToken.isNullOrBlank()) {
                 return@withContext GoogleDocsAuthOutcome.Authorized(checkResult.accessToken!!)
             }
         } catch (_: Exception) {
         }
 
-        // Fall back to standard GoogleSignIn intent if GIS PendingIntent was cancelled/dismissed
         return@withContext GoogleDocsAuthOutcome.NeedsSignInIntent(buildGoogleSignInIntent(context))
     }
 
@@ -196,53 +280,67 @@ object GoogleDocsSyncService {
         context: Context,
         data: Intent?
     ): GoogleDocsAuthOutcome = withContext(Dispatchers.IO) {
-        // 1. Check if data came from UserRecoverableAuthException consent screen
-        val existingAccount = GoogleSignIn.getLastSignedInAccount(context)?.account
-        if (existingAccount != null && data?.extras?.containsKey("authtoken") == true) {
+        // 1. Check if data returned directly from UserRecoverableAuthException consent screen
+        if (data?.extras?.containsKey("authtoken") == true) {
             val directToken = data.getStringExtra("authtoken")
+            val chosenEmail = data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!chosenEmail.isNullOrBlank()) {
+                saveSignedInEmail(context, chosenEmail)
+            }
             if (!directToken.isNullOrBlank()) {
                 return@withContext GoogleDocsAuthOutcome.Authorized(directToken)
             }
         }
 
-        // 2. Parse GoogleSignInAccount from sign-in result
-        val account: Account? = try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            val signInAccount = task.getResult(ApiException::class.java)
-            signInAccount?.account ?: existingAccount
-        } catch (e: ApiException) {
-            existingAccount ?: return@withContext GoogleDocsAuthOutcome.Error(
-                "Google Sign-In failed (code ${e.statusCode}). Please ensure a Google account is signed in on this device."
-            )
-        } catch (e: Exception) {
-            existingAccount ?: return@withContext GoogleDocsAuthOutcome.Error(
-                e.localizedMessage ?: "Google Sign-In was not completed"
-            )
+        // 2. Check if data returned from Android's native AccountManager.newChooseAccountIntent
+        val pickedAccountName = data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)?.trim()
+        if (!pickedAccountName.isNullOrEmpty()) {
+            val pickedAccountType = data.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE)
+                ?.takeIf { it.isNotBlank() } ?: "com.google"
+            saveSignedInEmail(context, pickedAccountName)
+            val account = Account(pickedAccountName, pickedAccountType)
+            return@withContext requestTokenForAccount(context, account)
         }
 
-        if (account == null) {
-            return@withContext GoogleDocsAuthOutcome.Error(
-                "No Google account selected. Please sign in with a Google account on your device."
-            )
+        // 3. Check if data returned from GoogleSignIn intent
+        val existingAccount = getSavedGoogleAccount(context)
+        val signInAccount: Account? = if (data != null) {
+            try {
+                val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+                val gAccount = task.getResult(ApiException::class.java)
+                gAccount?.account?.also { acc ->
+                    if (!acc.name.isNullOrBlank()) {
+                        saveSignedInEmail(context, acc.name)
+                    }
+                } ?: existingAccount
+            } catch (_: Exception) {
+                existingAccount
+            }
+        } else {
+            existingAccount
         }
 
-        // 3. Exchange account for OAuth2 access token with Docs + Drive scopes
+        if (signInAccount != null) {
+            return@withContext requestTokenForAccount(context, signInAccount)
+        }
+
+        // 4. Last fallback: Try Identity.getAuthorizationClient directly
         return@withContext try {
-            val token = GoogleAuthUtil.getToken(context, account, OAUTH_SCOPE_STRING)
-            if (!token.isNullOrBlank()) {
-                GoogleDocsAuthOutcome.Authorized(token)
+            val client = Identity.getAuthorizationClient(context)
+            val result = awaitAuthorization(client, buildAuthRequest(null))
+            if (result.hasResolution() && result.pendingIntent != null) {
+                GoogleDocsAuthOutcome.NeedsResolution(result.pendingIntent!!.intentSender)
+            } else if (!result.accessToken.isNullOrBlank()) {
+                GoogleDocsAuthOutcome.Authorized(result.accessToken!!)
             } else {
-                GoogleDocsAuthOutcome.Error("Failed to obtain Google Docs access token")
+                GoogleDocsAuthOutcome.Error(
+                    "No Google account selected. Please select or add a Google account on your device."
+                )
             }
-        } catch (recoverable: UserRecoverableAuthException) {
-            val recoverIntent = recoverable.intent
-            if (recoverIntent != null) {
-                GoogleDocsAuthOutcome.NeedsSignInIntent(recoverIntent)
-            } else {
-                GoogleDocsAuthOutcome.Error("Additional Google Docs permission required")
-            }
-        } catch (e: Exception) {
-            GoogleDocsAuthOutcome.Error(e.localizedMessage ?: "Failed to obtain access token")
+        } catch (_: Exception) {
+            GoogleDocsAuthOutcome.Error(
+                "Google Sign-In was cancelled or no Google account is signed in on this device."
+            )
         }
     }
 
@@ -257,6 +355,222 @@ object GoogleDocsSyncService {
             .addOnFailureListener { err ->
                 if (cont.isActive) cont.resumeWithException(err)
             }
+    }
+
+    /**
+     * Searches the user's Google Drive for the most recently modified Google Doc created by TK Pro / TallyKhata
+     * that contains valid embedded sync JSON.
+     */
+    suspend fun findLatestBackupDocId(accessToken: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val query = URLEncoder.encode(
+                "mimeType='application/vnd.google-apps.document' and trashed=false",
+                "UTF-8"
+            )
+            val url = "https://www.googleapis.com/drive/v3/files?q=$query&orderBy=modifiedTime%20desc&pageSize=15&fields=files(id,name,modifiedTime)"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            val candidateIds = mutableListOf<String>()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string().orEmpty()
+                val files = JSONObject(bodyStr).optJSONArray("files") ?: return@withContext null
+                // Prioritize docs with Ledger/Khata/TK Pro in title, then check all recent docs
+                val priorityIds = mutableListOf<String>()
+                val otherIds = mutableListOf<String>()
+                for (i in 0 until files.length()) {
+                    val fileObj = files.optJSONObject(i) ?: continue
+                    val id = fileObj.optString("id").trim()
+                    val name = fileObj.optString("name", "").lowercase()
+                    if (id.isNotEmpty()) {
+                        if (name.contains("ledger") || name.contains("khata") || name.contains("tk pro") || name.contains("tally")) {
+                            priorityIds.add(id)
+                        } else {
+                            otherIds.add(id)
+                        }
+                    }
+                }
+                candidateIds.addAll(priorityIds)
+                candidateIds.addAll(otherIds)
+            }
+
+            for (docId in candidateIds) {
+                val pullRes = pullLedgerFromGoogleDoc(accessToken, docId)
+                if (pullRes.isSuccess) {
+                    return@withContext docId
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Searches the user's Google Drive for the most recently modified Google Sheet created by TK Pro / TallyKhata
+     * that contains valid embedded sync JSON.
+     */
+    suspend fun findLatestBackupSheetId(accessToken: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val query = URLEncoder.encode(
+                "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+                "UTF-8"
+            )
+            val url = "https://www.googleapis.com/drive/v3/files?q=$query&orderBy=modifiedTime%20desc&pageSize=15&fields=files(id,name,modifiedTime)"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            val candidateIds = mutableListOf<String>()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string().orEmpty()
+                val files = JSONObject(bodyStr).optJSONArray("files") ?: return@withContext null
+                val priorityIds = mutableListOf<String>()
+                val otherIds = mutableListOf<String>()
+                for (i in 0 until files.length()) {
+                    val fileObj = files.optJSONObject(i) ?: continue
+                    val id = fileObj.optString("id").trim()
+                    val name = fileObj.optString("name", "").lowercase()
+                    if (id.isNotEmpty()) {
+                        if (name.contains("ledger") || name.contains("khata") || name.contains("tk pro") || name.contains("tally") || name.contains("sheet")) {
+                            priorityIds.add(id)
+                        } else {
+                            otherIds.add(id)
+                        }
+                    }
+                }
+                candidateIds.addAll(priorityIds)
+                candidateIds.addAll(otherIds)
+            }
+
+            for (sheetId in candidateIds) {
+                val pullRes = pullLedgerFromGoogleSheet(accessToken, sheetId)
+                if (pullRes.isSuccess) {
+                    return@withContext sheetId
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Automatically finds the newest valid cloud backup across Google Sheets and Google Docs
+     * and returns its ID, type, and JSON payload.
+     */
+    suspend fun findAndPullLatestCloudBackup(
+        accessToken: String,
+        preferredDocId: String? = null,
+        preferredSheetId: String? = null
+    ): Result<DiscoveredCloudBackup> = withContext(Dispatchers.IO) {
+        try {
+            val cleanSheetId = preferredSheetId?.let { extractSheetIdFromInput(it) }.orEmpty()
+            if (cleanSheetId.isNotEmpty()) {
+                val res = pullLedgerFromGoogleSheet(accessToken, cleanSheetId)
+                if (res.isSuccess) {
+                    return@withContext Result.success(
+                        DiscoveredCloudBackup(
+                            id = cleanSheetId,
+                            isSpreadsheet = true,
+                            jsonPayload = res.getOrThrow()
+                        )
+                    )
+                }
+            }
+
+            val cleanDocId = preferredDocId?.let { extractDocIdFromInput(it) }.orEmpty()
+            if (cleanDocId.isNotEmpty()) {
+                val res = pullLedgerFromGoogleDoc(accessToken, cleanDocId)
+                if (res.isSuccess) {
+                    return@withContext Result.success(
+                        DiscoveredCloudBackup(
+                            id = cleanDocId,
+                            isSpreadsheet = false,
+                            jsonPayload = res.getOrThrow()
+                        )
+                    )
+                }
+            }
+
+            // Query Google Drive for all non-trashed Docs and Spreadsheets ordered by modifiedTime desc
+            val query = URLEncoder.encode(
+                "(mimeType='application/vnd.google-apps.spreadsheet' or mimeType='application/vnd.google-apps.document') and trashed=false",
+                "UTF-8"
+            )
+            val url = "https://www.googleapis.com/drive/v3/files?q=$query&orderBy=modifiedTime%20desc&pageSize=20&fields=files(id,name,mimeType,modifiedTime)"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            data class CandidateFile(val id: String, val isSheet: Boolean, val isPriority: Boolean)
+            val candidates = mutableListOf<CandidateFile>()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string().orEmpty()
+                    val files = JSONObject(bodyStr).optJSONArray("files")
+                    if (files != null) {
+                        for (i in 0 until files.length()) {
+                            val f = files.optJSONObject(i) ?: continue
+                            val id = f.optString("id").trim()
+                            val mime = f.optString("mimeType")
+                            val name = f.optString("name", "").lowercase()
+                            if (id.isNotEmpty()) {
+                                val isSheet = mime == "application/vnd.google-apps.spreadsheet"
+                                val isPriority = name.contains("ledger") ||
+                                    name.contains("khata") ||
+                                    name.contains("tk pro") ||
+                                    name.contains("tally")
+                                candidates.add(CandidateFile(id, isSheet, isPriority))
+                            }
+                        }
+                    }
+                }
+            }
+
+            val sortedCandidates = candidates.sortedByDescending { it.isPriority }
+            for (cand in sortedCandidates) {
+                if (cand.isSheet) {
+                    val res = pullLedgerFromGoogleSheet(accessToken, cand.id)
+                    if (res.isSuccess) {
+                        return@withContext Result.success(
+                            DiscoveredCloudBackup(
+                                id = cand.id,
+                                isSpreadsheet = true,
+                                jsonPayload = res.getOrThrow()
+                            )
+                        )
+                    }
+                } else {
+                    val res = pullLedgerFromGoogleDoc(accessToken, cand.id)
+                    if (res.isSuccess) {
+                        return@withContext Result.success(
+                            DiscoveredCloudBackup(
+                                id = cand.id,
+                                isSpreadsheet = false,
+                                jsonPayload = res.getOrThrow()
+                            )
+                        )
+                    }
+                }
+            }
+
+            Result.failure(
+                IllegalStateException("No TK Pro cloud backup found in this Google account's Drive.")
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /**
@@ -275,7 +589,7 @@ object GoogleDocsSyncService {
             val docTitle = "${settings.businessName.ifBlank { "TK Pro" }} - Live Ledger Khata"
 
             // 1. Resolve or create target Google Doc
-            var targetDocId = existingDocId?.trim().orEmpty()
+            var targetDocId = existingDocId?.trim()?.let { extractDocIdFromInput(it) }.orEmpty()
             var endIndex = 1
 
             if (targetDocId.isNotEmpty()) {
@@ -285,6 +599,18 @@ object GoogleDocsSyncService {
                 } else {
                     // Document deleted or inaccessible; create a fresh one
                     targetDocId = ""
+                }
+            }
+
+            if (targetDocId.isEmpty()) {
+                // Check if a backup Google Doc already exists in Drive before creating a duplicate
+                val existingInDrive = findLatestBackupDocId(accessToken)
+                if (!existingInDrive.isNullOrBlank()) {
+                    val existingEndIdx = fetchDocumentEndIndex(accessToken, existingInDrive)
+                    if (existingEndIdx != null) {
+                        targetDocId = existingInDrive
+                        endIndex = existingEndIdx
+                    }
                 }
             }
 
@@ -414,21 +740,25 @@ object GoogleDocsSyncService {
 
     fun extractDocIdFromInput(rawInput: String): String {
         val trimmed = rawInput.trim()
-        val regex = Regex("/document/d/([a-zA-Z0-9-_]+)")
-        val match = regex.find(trimmed)
-        return match?.groupValues?.getOrNull(1) ?: trimmed
+        val docRegex = Regex("/document/d/([a-zA-Z0-9-_]+)")
+        docRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let { return it }
+        val genericIdRegex = Regex("id=([a-zA-Z0-9-_]+)")
+        genericIdRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let { return it }
+        return trimmed
     }
 
     fun extractSheetIdFromInput(rawInput: String): String {
         val trimmed = rawInput.trim()
-        val regex = Regex("/spreadsheets/d/([a-zA-Z0-9-_]+)")
-        val match = regex.find(trimmed)
-        return match?.groupValues?.getOrNull(1) ?: trimmed
+        val sheetRegex = Regex("/spreadsheets/d/([a-zA-Z0-9-_]+)")
+        sheetRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let { return it }
+        val genericIdRegex = Regex("id=([a-zA-Z0-9-_]+)")
+        genericIdRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let { return it }
+        return trimmed
     }
 
     /**
      * Pushes the current ledger (structured customer summary rows + transaction rows + embedded sync row)
-     * to a live Google Sheet. If [existingSheetId] is blank or inaccessible, creates a new Google Sheet.
+     * to a live Google Sheet. If [existingSheetId] is blank or inaccessible, reuses an existing sheet in Drive or creates a new one.
      */
     suspend fun syncLedgerToGoogleSheet(
         accessToken: String,
@@ -445,6 +775,13 @@ object GoogleDocsSyncService {
             if (targetSheetId.isNotEmpty()) {
                 if (!checkSpreadsheetAccessible(accessToken, targetSheetId)) {
                     targetSheetId = ""
+                }
+            }
+
+            if (targetSheetId.isEmpty()) {
+                val existingInDrive = findLatestBackupSheetId(accessToken)
+                if (!existingInDrive.isNullOrBlank() && checkSpreadsheetAccessible(accessToken, existingInDrive)) {
+                    targetSheetId = existingInDrive
                 }
             }
 

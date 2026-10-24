@@ -1800,34 +1800,61 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Category,
-                            contentDescription = null,
-                            tint = TallyGoldAccent
-                        )
-                        Text(
-                            text = strings.categoriesSectionTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Category,
+                                contentDescription = null,
+                                tint = TallyGoldAccent
+                            )
+                            Text(
+                                text = strings.categoriesSectionTitle,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (settings.customCategories.isNotEmpty()) {
+                            Text(
+                                text = if (strings.isBn) "সব মুছুন" else "Clear All",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TallyRubyRed,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.clearAllCategories() }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .testTag("clear_all_categories_button")
+                            )
+                        }
                     }
 
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        settings.customCategories.forEach { cat ->
-                            LiquidFilterChip(
-                                label = "$cat  ✕",
-                                selected = false,
-                                onClick = { categoryToDelete = cat },
-                                useDarkGlass = useDarkGlass,
-                                accentColor = TallyGoldAccent
-                            )
+                    if (settings.customCategories.isEmpty()) {
+                        Text(
+                            text = if (strings.isBn) "কোনো ডিফল্ট লেনদেনের ধরন নেই। প্রয়োজন হলে নিচে নতুন ধরন যোগ করতে পারেন।" else "No default transaction types. Add custom types below if needed.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            settings.customCategories.forEach { cat ->
+                                LiquidFilterChip(
+                                    label = "$cat  ✕",
+                                    selected = false,
+                                    onClick = { categoryToDelete = cat },
+                                    useDarkGlass = useDarkGlass,
+                                    accentColor = TallyGoldAccent
+                                )
+                            }
                         }
                     }
 

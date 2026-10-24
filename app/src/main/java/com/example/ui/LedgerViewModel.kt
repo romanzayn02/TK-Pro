@@ -410,7 +410,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     customerId = newId,
                     type = "DEBIT",
                     amount = openingDebit,
-                    category = "বাকিতে বিক্রি",
+                    category = "প্রারম্ভিক জের",
                     paymentMethod = "CASH",
                     note = "প্রারম্ভিক জের (টাকা পাব / দিয়েছি)",
                     receiptUri = null
@@ -421,7 +421,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     customerId = newId,
                     type = "CREDIT",
                     amount = openingCredit,
-                    category = "নগদ জমা",
+                    category = "প্রারম্ভিক জের",
                     paymentMethod = "CASH",
                     note = "প্রারম্ভিক জের (টাকা দেব / পেয়েছি)",
                     receiptUri = null
@@ -671,6 +671,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     fun removeCustomCategory(category: String) {
         viewModelScope.launch {
             repository.removeCustomCategory(category, uiState.value.settings.customCategories)
+        }
+    }
+
+    fun clearAllCategories() {
+        viewModelScope.launch {
+            repository.clearAllCategories()
         }
     }
 

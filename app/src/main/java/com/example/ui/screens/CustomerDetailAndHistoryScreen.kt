@@ -183,8 +183,8 @@ private fun shareSingleTransaction(
                 append(if (strings.isBn) "💰 জমা/পরিশোধ পরিমাণ: $amountFormatted\n" else "💰 Credit Amount: $amountFormatted\n")
             }
         }
-        append(if (strings.isBn) "🕒 তারিখ: $dateFormatted\n" else "🕒 Date: $dateFormatted\n")
-        append(if (strings.isBn) "💳 মাধ্যম: $methodLabel (${transaction.category})\n" else "💳 Method: $methodLabel (${transaction.category})\n")
+        val catSuffix = if (transaction.category.isNotBlank()) " (${transaction.category})" else ""
+        append(if (strings.isBn) "💳 মাধ্যম: $methodLabel$catSuffix\n" else "💳 Method: $methodLabel$catSuffix\n")
         if (transaction.note.isNotBlank()) {
             append(if (strings.isBn) "📝 বিবরণ: ${transaction.note}\n" else "📝 Note: ${transaction.note}\n")
         }
@@ -248,7 +248,8 @@ private fun shareCustomerLedgerStatement(
                 val tSign = if (tx.type == "DEBIT") "+" else "-"
                 val tAmt = LocalizationProvider.formatAmount(tx.amount, currency, strings.isBn)
                 val tDate = LocalizationProvider.formatTimestamp(tx.timestamp, strings.isBn)
-                append("• $tDate: $tSign$tAmt (${tx.category})")
+                val catTag = if (tx.category.isNotBlank()) " (${tx.category})" else ""
+                append("• $tDate: $tSign$tAmt$catTag")
                 if (tx.note.isNotBlank()) append(" - ${tx.note}")
                 append("\n")
             }
@@ -1117,18 +1118,20 @@ fun TransactionItemGlassCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (useDarkGlass) Color(0xFF334155) else Color(0xFFE2E8F0))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = transaction.category,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium
-                        )
+                    if (transaction.category.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (useDarkGlass) Color(0xFF334155) else Color(0xFFE2E8F0))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = transaction.category,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
 
                     if (!transaction.receiptUri.isNullOrBlank()) {

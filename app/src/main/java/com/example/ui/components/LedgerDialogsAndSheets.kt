@@ -679,7 +679,7 @@ fun AddTransactionBottomSheet(
     currencySymbol: String,
     customers: List<CustomerWithBalance>,
     preselectedCustomerId: Long?,
-    initialType: String, // "DEBIT" (টাকা পাব / দিয়েছি) or "CREDIT" (টাকা দেব / পেয়েছি)
+    initialType: String = "DEBIT",
     categories: List<String>,
     viewModel: LedgerViewModel,
     editingTransaction: com.example.data.TransactionEntity? = null,
@@ -707,14 +707,9 @@ fun AddTransactionBottomSheet(
             } ?: ""
         )
     }
-    var selectedCategory by remember(editingTransaction, initialType) {
-        mutableStateOf(
-            editingTransaction?.category ?: if (initialType == "DEBIT") {
-                categories.firstOrNull() ?: "বাকিতে বিক্রি"
-            } else {
-                categories.getOrNull(1) ?: categories.firstOrNull() ?: "নগদ জমা"
-            }
-        )
+    // No default category pre-selected! User can select one optionally or leave it blank
+    var selectedCategory by remember(editingTransaction) {
+        mutableStateOf(editingTransaction?.category ?: "")
     }
     var paymentMethod by remember(editingTransaction) {
         mutableStateOf(editingTransaction?.paymentMethod ?: "CASH")
@@ -781,7 +776,11 @@ fun AddTransactionBottomSheet(
         }
     }
 
-    val activeAccent = if (txType == "DEBIT") TallyRubyRed else TallyEmeraldGreen
+    val activeAccent = when (txType) {
+        "DEBIT" -> TallyRubyRed
+        "CREDIT" -> TallyEmeraldGreen
+        else -> TallyCyanRefraction
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -825,63 +824,87 @@ fun AddTransactionBottomSheet(
                 }
             }
 
-            // Compact Dual Toggle: টাকা পাব / দিয়েছি (Debit) vs টাকা দেব / পেয়েছি (Credit)
+            // Transaction Type Selection
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val isDebit = txType == "DEBIT"
                 SpringyLiquidButton(
                     onClick = {
                         txType = "DEBIT"
+                        errorMessage = null
                         try {
                             amountFocusRequester.requestFocus()
                             keyboardController?.show()
                         } catch (_: Exception) {
                         }
                     },
-                    accentColor = if (txType == "DEBIT") TallyRubyRed else TallyRubyRed.copy(alpha = 0.25f),
-                    secondaryColor = if (txType == "DEBIT") Color(0xFFB71C1C) else TallyRubyRed.copy(alpha = 0.15f),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    accentColor = if (isDebit) TallyRubyRed else TallyRubyRed.copy(alpha = 0.18f),
+                    secondaryColor = if (isDebit) Color(0xFFB71C1C) else TallyRubyRed.copy(alpha = 0.08f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (!isDebit) {
+                                Modifier.border(1.2.dp, TallyRubyRed.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 11.dp),
                     testTag = "toggle_debit_button"
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
                         contentDescription = null,
+                        tint = if (isDebit) Color.White else TallyRubyRed,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = strings.debitTitle,
                         style = MaterialTheme.typography.bodyMedium,
+                        color = if (isDebit) Color.White else TallyRubyRed,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
+                val isCredit = txType == "CREDIT"
                 SpringyLiquidButton(
                     onClick = {
                         txType = "CREDIT"
+                        errorMessage = null
                         try {
                             amountFocusRequester.requestFocus()
                             keyboardController?.show()
                         } catch (_: Exception) {
                         }
                     },
-                    accentColor = if (txType == "CREDIT") TallyEmeraldGreen else TallyEmeraldGreen.copy(alpha = 0.25f),
-                    secondaryColor = if (txType == "CREDIT") Color(0xFF007E33) else TallyEmeraldGreen.copy(alpha = 0.15f),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    accentColor = if (isCredit) TallyEmeraldGreen else TallyEmeraldGreen.copy(alpha = 0.18f),
+                    secondaryColor = if (isCredit) Color(0xFF007E33) else TallyEmeraldGreen.copy(alpha = 0.08f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (!isCredit) {
+                                Modifier.border(1.2.dp, TallyEmeraldGreen.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 11.dp),
                     testTag = "toggle_credit_button"
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
                         contentDescription = null,
+                        tint = if (isCredit) Color.White else TallyEmeraldGreen,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = strings.creditTitle,
                         style = MaterialTheme.typography.bodyMedium,
+                        color = if (isCredit) Color.White else TallyEmeraldGreen,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1185,21 +1208,26 @@ fun AddTransactionBottomSheet(
                         }
                     }
 
-                    // Customizable Category Selector
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        categories.forEach { cat ->
-                            LiquidFilterChip(
-                                label = cat,
-                                selected = selectedCategory == cat,
-                                onClick = { selectedCategory = cat },
-                                useDarkGlass = useDarkGlass,
-                                accentColor = activeAccent,
-                                testTag = "category_chip_$cat"
-                            )
+                    // Customizable Category Selector (Optional - click selected category again to deselect)
+                    if (categories.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            categories.forEach { cat ->
+                                val isSelected = selectedCategory == cat
+                                LiquidFilterChip(
+                                    label = cat,
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedCategory = if (isSelected) "" else cat
+                                    },
+                                    useDarkGlass = useDarkGlass,
+                                    accentColor = activeAccent,
+                                    testTag = "category_chip_$cat"
+                                )
+                            }
                         }
                     }
                 }
@@ -1230,7 +1258,7 @@ fun AddTransactionBottomSheet(
                                 customerId = targetCustomerId,
                                 type = txType,
                                 amount = parsedAmount,
-                                category = selectedCategory,
+                                category = selectedCategory.trim(),
                                 paymentMethod = paymentMethod,
                                 note = note,
                                 receiptUri = receiptPath,
@@ -1241,7 +1269,7 @@ fun AddTransactionBottomSheet(
                                 customerId = targetCustomerId,
                                 type = txType,
                                 amount = parsedAmount,
-                                category = selectedCategory,
+                                category = selectedCategory.trim(),
                                 paymentMethod = paymentMethod,
                                 note = note,
                                 receiptUri = receiptPath,
@@ -1251,8 +1279,16 @@ fun AddTransactionBottomSheet(
                         onSaved()
                     }
                 },
-                accentColor = activeAccent,
-                secondaryColor = if (txType == "DEBIT") Color(0xFFB71C1C) else Color(0xFF007E33),
+                accentColor = when (txType) {
+                    "DEBIT" -> TallyRubyRed
+                    "CREDIT" -> TallyEmeraldGreen
+                    else -> TallyCyanRefraction
+                },
+                secondaryColor = when (txType) {
+                    "DEBIT" -> Color(0xFFB71C1C)
+                    "CREDIT" -> Color(0xFF007E33)
+                    else -> Color(0xFF0077B6)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp, bottom = 14.dp),
@@ -1265,7 +1301,11 @@ fun AddTransactionBottomSheet(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "${strings.saveButton} (${if (txType == "DEBIT") strings.debitShort else strings.creditShort})",
+                    text = when (txType) {
+                        "DEBIT" -> "${strings.saveButton} (${strings.debitShort})"
+                        "CREDIT" -> "${strings.saveButton} (${strings.creditShort})"
+                        else -> if (strings.isBn) "লেনদেন সংরক্ষণ করুন" else "Save Transaction"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

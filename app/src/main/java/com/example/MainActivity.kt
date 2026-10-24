@@ -526,14 +526,14 @@ fun TallyKhataProApp(
         )
     }
 
-    activeTxSheetConfig?.let { (txType, preselectedCustomerId) ->
+    activeTxSheetConfig?.let { (type, preselectedCustomerId) ->
         AddTransactionBottomSheet(
             strings = strings,
             useDarkGlass = useDarkGlass,
             currencySymbol = uiState.settings.currencySymbol,
             customers = uiState.customersWithBalance,
             preselectedCustomerId = preselectedCustomerId,
-            initialType = txType,
+            initialType = type,
             categories = uiState.settings.customCategories,
             viewModel = viewModel,
             onDismiss = { activeTxSheetConfig = null },

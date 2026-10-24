@@ -21,16 +21,7 @@ data class AppSettings(
     val language: String = "BN", // "BN" (বাংলা) default, or "EN" (English)
     val profilePhotoUri: String = "", // Local override image path on device (no cloud sync)
     val googlePhotoUrl: String = "",  // Default Google Account profile picture URL
-    val customCategories: List<String> = listOf(
-        "বাকিতে বিক্রি",
-        "নগদ জমা",
-        "বাকি আদায়",
-        "মাল ক্রয়",
-        "পরিশোধ",
-        "পরিবহন ও ভাড়া",
-        "দোকান খরচ",
-        "অন্যান্য"
-    ),
+    val customCategories: List<String> = emptyList(), // No hardcoded default transaction categories
     val useDarkGlassTheme: Boolean = false,
     val biometricLockEnabled: Boolean = false,
     val isSetupCompleted: Boolean = false,
@@ -54,6 +45,21 @@ class LedgerRepository(
     private val dao: LedgerDao,
     private val context: Context
 ) {
+    companion object {
+        val LEGACY_DEFAULT_CATEGORIES = setOf(
+            "বাকিতে বিক্রি",
+            "নগদ জমা",
+            "বাকি আদায়",
+            "বাকি আদায়",
+            "মাল ক্রয়",
+            "মাল ক্রয়",
+            "পরিশোধ",
+            "পরিবহন ও ভাড়া",
+            "দোকান খরচ",
+            "অন্যান্য"
+        )
+    }
+
     private object Keys {
         val ACCOUNT_TYPE = stringPreferencesKey("account_type")
         val BUSINESS_NAME = stringPreferencesKey("business_name")
@@ -77,19 +83,12 @@ class LedgerRepository(
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         val rawCats = prefs[Keys.CUSTOM_CATEGORIES]
-        val categories = if (rawCats.isNullOrBlank()) {
-            listOf(
-                "বাকিতে বিক্রি",
-                "নগদ জমা",
-                "বাকি আদায়",
-                "মাল ক্রয়",
-                "পরিশোধ",
-                "পরিবহন ও ভাড়া",
-                "দোকান খরচ",
-                "অন্যান্য"
-            )
+        val categories = if (rawCats == null || rawCats.isBlank() || rawCats == "__EMPTY__") {
+            emptyList()
         } else {
-            rawCats.split("|").filter { it.isNotBlank() }
+            rawCats.split("|")
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it !in LEGACY_DEFAULT_CATEGORIES }
         }
         val fallbackGooglePhoto = GoogleDocsSyncService.getSignedInPhotoUrl(context).orEmpty()
         AppSettings(
@@ -365,10 +364,15 @@ class LedgerRepository(
     }
 
     suspend fun removeCustomCategory(category: String, currentCategories: List<String>) {
-        if (currentCategories.size <= 2) return
         val updated = currentCategories.filterNot { it == category }
         context.dataStore.edit { prefs ->
-            prefs[Keys.CUSTOM_CATEGORIES] = updated.joinToString("|")
+            prefs[Keys.CUSTOM_CATEGORIES] = if (updated.isEmpty()) "__EMPTY__" else updated.joinToString("|")
+        }
+    }
+
+    suspend fun clearAllCategories() {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CUSTOM_CATEGORIES] = "__EMPTY__"
         }
     }
 

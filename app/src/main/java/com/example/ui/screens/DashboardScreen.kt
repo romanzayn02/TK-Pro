@@ -549,7 +549,7 @@ fun DashboardScreen(
                         }
                     }
 
-                    // Quick Action Row: টাকা পাব / দিয়েছি (Debit) & টাকা দেব / পেয়েছি (Credit)
+                    // Quick Action Row: New Transaction Entry (No default pre-selected)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)

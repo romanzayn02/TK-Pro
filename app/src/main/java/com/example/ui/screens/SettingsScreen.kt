@@ -1,14 +1,17 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -247,6 +250,12 @@ fun SettingsScreen(
         if (uri != null) {
             viewModel.updateOwnerProfilePhoto(context, uri)
         }
+    }
+
+    val contactsPhotoScanPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted: Boolean ->
+        viewModel.scanExistingCustomersForContactPhotos(context, showBannerOnResult = true)
     }
 
     LazyColumn(
@@ -1578,6 +1587,80 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
+
+                    // Scan Existing Customer Phone Numbers in Ledger for Contact Photos
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(TallyCyanRefraction.copy(alpha = 0.08f))
+                            .border(1.dp, TallyCyanRefraction.copy(alpha = 0.30f), RoundedCornerShape(14.dp))
+                            .clickable {
+                                val hasPerm = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.READ_CONTACTS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasPerm) {
+                                    viewModel.scanExistingCustomersForContactPhotos(
+                                        context,
+                                        showBannerOnResult = true
+                                    )
+                                } else {
+                                    contactsPhotoScanPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("settings_scan_contact_photos_button"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = if (strings.isBn) {
+                                    "📇 খাতার নাম্বারগুলো থেকে কন্টাক্ট ছবি স্ক্যান করুন"
+                                } else {
+                                    "📇 Scan Contact Photos for Existing Ledger Numbers"
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = TallyCyanRefraction
+                            )
+                            Text(
+                                text = if (strings.isBn) {
+                                    "ফোনের কন্টাক্ট লিস্টে সেভ থাকা নাম্বারগুলোর ছবি স্বয়ংক্রিয়ভাবে কাস্টমার প্রোফাইলে বসিয়ে দেয় (ক্লাউডে সিঙ্ক ছাড়াই)"
+                                } else {
+                                    "Matches existing customer phone numbers with your Contacts & saves their photos locally on device"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        LiquidFilterChip(
+                            label = if (strings.isBn) "স্ক্যান" else "Scan",
+                            selected = false,
+                            onClick = {
+                                val hasPerm = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.READ_CONTACTS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (hasPerm) {
+                                    viewModel.scanExistingCustomersForContactPhotos(
+                                        context,
+                                        showBannerOnResult = true
+                                    )
+                                } else {
+                                    contactsPhotoScanPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                }
+                            },
+                            useDarkGlass = useDarkGlass,
+                            accentColor = TallyCyanRefraction,
+                            testTag = "settings_scan_contact_photos_chip"
+                        )
                     }
 
                     // Account Mode Selector: Business vs Individual

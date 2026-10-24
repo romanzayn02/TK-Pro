@@ -1,8 +1,13 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -108,12 +113,21 @@ fun DashboardScreen(
     onRetryOfflineSync: () -> Unit = {},
     onOpenWelcomeSetup: () -> Unit = {},
     onSearchingChanged: (Boolean) -> Unit = {},
+    onScanContactPhotos: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val useDarkGlass = uiState.settings.useDarkGlassTheme
     val currency = uiState.settings.currencySymbol
+
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            onScanContactPhotos()
+        }
+    }
 
     var isSearchFocused by remember { mutableStateOf(false) }
     val isSearching = isSearchFocused || uiState.searchQuery.isNotEmpty()
@@ -693,6 +707,26 @@ fun DashboardScreen(
                             accentColor = TallyGoldAccent,
                             testTag = "filter_chip_supplier"
                         )
+                        if (uiState.customersWithBalance.any { it.customer.phone.isNotBlank() && it.customer.photoUri.isNullOrBlank() }) {
+                            LiquidFilterChip(
+                                label = if (strings.isBn) "📇 কন্টাক্ট ছবি স্ক্যান" else "📇 Scan Contact Photos",
+                                selected = false,
+                                onClick = {
+                                    val hasPerm = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.READ_CONTACTS
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (hasPerm) {
+                                        onScanContactPhotos()
+                                    } else {
+                                        contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                    }
+                                },
+                                useDarkGlass = useDarkGlass,
+                                accentColor = TallyCyanRefraction,
+                                testTag = "dashboard_scan_contact_photos_chip"
+                            )
+                        }
                     }
                 }
             }

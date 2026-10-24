@@ -401,6 +401,12 @@ fun TallyKhataProApp(
                                             },
                                             onSearchingChanged = { searching ->
                                                 isDashboardSearching = searching
+                                            },
+                                            onScanContactPhotos = {
+                                                viewModel.scanExistingCustomersForContactPhotos(
+                                                    context = context,
+                                                    showBannerOnResult = true
+                                                )
                                             }
                                         )
 

@@ -1,12 +1,16 @@
 package com.example.ui
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.provider.ContactsContract
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -183,6 +187,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     _isSyncFailedOfflineMode.value = true
                 }
             }
+            // Automatically scan existing customer phone numbers for contact photos if permission is already granted
+            scanExistingCustomersForContactPhotos(application, showBannerOnResult = false)
         }
     }
 
@@ -385,13 +391,19 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         )
         val color = palette[abs(name.hashCode()) % palette.size]
         viewModelScope.launch {
+            val appCtx = getApplication<Application>()
+            val resolvedPhoto = if (!photoUri.isNullOrBlank()) {
+                photoUri
+            } else {
+                lookupAndSaveContactPhotoForPhone(appCtx, phone, "customer_new")
+            }
             val newId = repository.addCustomer(
                 name = name,
                 phone = phone,
                 partyType = partyType,
                 address = address,
                 avatarColorHex = color,
-                photoUri = photoUri
+                photoUri = resolvedPhoto
             )
             if (openingDebit > 0.0) {
                 repository.addTransaction(
@@ -831,6 +843,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                                 repository.updateGoogleDocsSyncInfo(backup.id, System.currentTimeMillis())
                             }
                             _isSyncingGoogleDocs.value = false
+                            scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
                             _statusBannerMessage.value = if (isBn) {
                                 "✅ লগইন সফল ও ক্লাউড থেকে $cCount জন কাস্টমার এবং $tCount টি লেনদেন রিস্টোর হয়েছে!"
                             } else {
@@ -888,6 +901,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             }
                         }
                         _isSyncingGoogleDocs.value = false
+                        scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
                         val sourceName = if (backup.isSpreadsheet) "Google Sheets" else "Google Docs"
                         _statusBannerMessage.value = if (isBn) {
                             "✅ $sourceName থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
@@ -996,6 +1010,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             )
                         }
                         _isSyncingGoogleDocs.value = false
+                        scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
                         _statusBannerMessage.value = if (isBn) {
                             "✅ Google Docs থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
@@ -1105,6 +1120,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             )
                         }
                         _isSyncingGoogleDocs.value = false
+                        scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
                         _statusBannerMessage.value = if (isBn) {
                             "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
@@ -1279,6 +1295,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 result.onSuccess { (cCount, tCount) ->
                     _isSyncFailedOfflineMode.value = false
+                    scanExistingCustomersForContactPhotos(context, showBannerOnResult = false)
                     val isBn = uiState.value.settings.language != "EN"
                     _statusBannerMessage.value = if (isBn) {
                         "✅ $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
@@ -1350,6 +1367,196 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 sourceUri.toString()
             }
         }
+    }
+
+    /**
+     * Scans all existing customers in the ledger who have a phone number and no local photo yet,
+     * matches their phone numbers against the device's Contacts address book, and copies any found
+     * contact photos into private local storage on this device (zero cloud sync).
+     */
+    fun scanExistingCustomersForContactPhotos(
+        context: Context,
+        showBannerOnResult: Boolean = true
+    ) {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            if (showBannerOnResult) {
+                val isBn = uiState.value.settings.language != "EN"
+                _statusBannerMessage.value = if (isBn) {
+                    "⚠️ কন্টাক্ট ছবি স্ক্যান করতে Contacts পারমিশন প্রয়োজন"
+                } else {
+                    "⚠️ Contacts permission is required to scan contact photos"
+                }
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            val matchedCount = withContext(Dispatchers.IO) {
+                val customers = repository.getAllCustomersSnapshot()
+                val candidates = customers.filter { customer ->
+                    val hasPhone = customer.phone.any { it.isDigit() }
+                    val existingPhoto = customer.photoUri
+                    val missingOrBrokenPhoto = existingPhoto.isNullOrBlank() ||
+                        (existingPhoto.startsWith("/") && !File(existingPhoto).exists())
+                    hasPhone && missingOrBrokenPhoto
+                }
+                if (candidates.isEmpty()) return@withContext 0
+
+                // Preload a normalized suffix map (last 10 digits -> photoUri) from Phone.CONTENT_URI
+                // so numbers with/without country code (+880 vs 017...) match reliably.
+                val suffixPhotoMap = buildContactSuffixPhotoMap(context)
+                var updated = 0
+
+                for (customer in candidates) {
+                    val photoUriString = queryPhoneLookupPhotoUri(context, customer.phone)
+                        ?: normalizePhoneSuffix(customer.phone)?.let { suffixPhotoMap[it] }
+
+                    if (!photoUriString.isNullOrBlank()) {
+                        val savedPath = copyAvatarToInternalStorage(
+                            context = context,
+                            sourceUri = Uri.parse(photoUriString),
+                            prefix = "contact_sync_${customer.id}"
+                        )
+                        if (!savedPath.isNullOrBlank()) {
+                            repository.updateCustomerPhoto(customer.id, savedPath)
+                            updated++
+                        }
+                    }
+                }
+                updated
+            }
+
+            if (showBannerOnResult) {
+                val isBn = uiState.value.settings.language != "EN"
+                _statusBannerMessage.value = if (matchedCount > 0) {
+                    if (isBn) {
+                        "✅ কন্টাক্ট লিস্ট থেকে $matchedCount জন কাস্টমারের ছবি যুক্ত হয়েছে!"
+                    } else {
+                        "✅ Matched & saved contact photos for $matchedCount customers!"
+                    }
+                } else {
+                    if (isBn) {
+                        "ℹ️ কন্টাক্ট লিস্টে নতুন কোনো কাস্টমারের ছবি পাওয়া যায়নি"
+                    } else {
+                        "ℹ️ No additional contact photos found for existing ledger numbers"
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun lookupAndSaveContactPhotoForPhone(
+        context: Context,
+        phone: String,
+        prefix: String
+    ): String? {
+        if (phone.isBlank()) return null
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) return null
+
+        return withContext(Dispatchers.IO) {
+            val photoUriString = queryPhoneLookupPhotoUri(context, phone)
+                ?: normalizePhoneSuffix(phone)?.let { buildContactSuffixPhotoMap(context)[it] }
+            if (!photoUriString.isNullOrBlank()) {
+                copyAvatarToInternalStorage(context, Uri.parse(photoUriString), prefix)
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun queryPhoneLookupPhotoUri(context: Context, rawPhone: String): String? {
+        val trimmed = rawPhone.trim()
+        if (trimmed.isEmpty()) return null
+        return try {
+            val lookupUri = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(trimmed)
+            )
+            val projection = arrayOf(
+                ContactsContract.PhoneLookup.PHOTO_URI,
+                ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI
+            )
+            context.contentResolver.query(lookupUri, projection, null, null, null)?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val idxFull = cursor.getColumnIndex(ContactsContract.PhoneLookup.PHOTO_URI)
+                    val idxThumb = cursor.getColumnIndex(ContactsContract.PhoneLookup.PHOTO_THUMBNAIL_URI)
+                    val full = if (idxFull >= 0) cursor.getString(idxFull) else null
+                    val thumb = if (idxThumb >= 0) cursor.getString(idxThumb) else null
+                    val resolved = full ?: thumb
+                    if (!resolved.isNullOrBlank()) {
+                        return resolved
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun buildContactSuffixPhotoMap(context: Context): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        try {
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+                ContactsContract.CommonDataKinds.Phone.PHOTO_URI,
+                ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI
+            )
+            val selection = "${ContactsContract.CommonDataKinds.Phone.PHOTO_URI} IS NOT NULL OR " +
+                "${ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI} IS NOT NULL"
+            context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                projection,
+                selection,
+                null,
+                null
+            )?.use { cursor ->
+                val numIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val fullIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_URI)
+                val thumbIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI)
+                while (cursor.moveToNext()) {
+                    val num = if (numIdx >= 0) cursor.getString(numIdx) else null
+                    val photo = (if (fullIdx >= 0) cursor.getString(fullIdx) else null)
+                        ?: (if (thumbIdx >= 0) cursor.getString(thumbIdx) else null)
+                    val key = normalizePhoneSuffix(num)
+                    if (key != null && !photo.isNullOrBlank() && !map.containsKey(key)) {
+                        map[key] = photo
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return map
+    }
+
+    private fun normalizePhoneSuffix(rawPhone: String?): String? {
+        if (rawPhone.isNullOrBlank()) return null
+        val digits = rawPhone.map { ch ->
+            // Also normalize Bengali digits ০-৯ to 0-9!
+            when (ch) {
+                '০' -> '0'
+                '১' -> '1'
+                '২' -> '2'
+                '৩' -> '3'
+                '৪' -> '4'
+                '৫' -> '5'
+                '৬' -> '6'
+                '৭' -> '7'
+                '৮' -> '8'
+                '৯' -> '9'
+                else -> ch
+            }
+        }.filter { it.isDigit() }.joinToString("")
+        if (digits.length < 6) return null
+        return if (digits.length >= 10) digits.takeLast(10) else digits
     }
 }
 

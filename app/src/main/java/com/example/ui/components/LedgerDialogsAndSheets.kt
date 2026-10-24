@@ -132,14 +132,43 @@ import kotlinx.coroutines.launch
 /**
  * Helper to resolve contact name and phone number from Android's native Contact Picker URI.
  */
-private fun extractContactDetails(context: Context, contactUri: Uri): Pair<String, String> {
+private fun copyUriToLocalAvatarFile(context: Context, sourceUri: Uri, prefix: String): String? {
+    return try {
+        val dir = File(context.filesDir, "avatars").apply { mkdirs() }
+        val destFile = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
+        val copied = context.contentResolver.openInputStream(sourceUri)?.use { input ->
+            java.io.FileOutputStream(destFile).use { output ->
+                input.copyTo(output)
+            }
+            true
+        } ?: false
+        if (copied && destFile.exists() && destFile.length() > 0L) {
+            destFile.absolutePath
+        } else {
+            sourceUri.toString()
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * Helper to resolve contact name, phone number, and contact photo from Android's native Contact Picker URI.
+ */
+private fun extractContactDetails(context: Context, contactUri: Uri): Triple<String, String, String?> {
     var name = ""
     var phone = ""
     var contactId = ""
+    var photoUriStr: String? = null
 
     context.contentResolver.query(
         contactUri,
-        arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME),
+        arrayOf(
+            ContactsContract.Contacts._ID,
+            ContactsContract.Contacts.DISPLAY_NAME,
+            ContactsContract.Contacts.PHOTO_URI,
+            ContactsContract.Contacts.PHOTO_THUMBNAIL_URI
+        ),
         null,
         null,
         null
@@ -147,8 +176,15 @@ private fun extractContactDetails(context: Context, contactUri: Uri): Pair<Strin
         if (cursor.moveToFirst()) {
             val idIdx = cursor.getColumnIndex(ContactsContract.Contacts._ID)
             val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+            val photoIdx = cursor.getColumnIndex(ContactsContract.Contacts.PHOTO_URI)
+            val thumbIdx = cursor.getColumnIndex(ContactsContract.Contacts.PHOTO_THUMBNAIL_URI)
             if (idIdx >= 0) contactId = cursor.getString(idIdx) ?: ""
             if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: ""
+            val rawPhoto = (if (photoIdx >= 0) cursor.getString(photoIdx) else null)
+                ?: (if (thumbIdx >= 0) cursor.getString(thumbIdx) else null)
+            if (!rawPhoto.isNullOrBlank()) {
+                photoUriStr = copyUriToLocalAvatarFile(context, Uri.parse(rawPhoto), "contact_avatar")
+            }
         }
     }
 
@@ -168,7 +204,7 @@ private fun extractContactDetails(context: Context, contactUri: Uri): Pair<Strin
             }
         }
     }
-    return name.trim() to phone.trim()
+    return Triple(name.trim(), phone.trim(), photoUriStr)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -184,7 +220,8 @@ fun AddCustomerBottomSheet(
         partyType: String,
         address: String,
         openingDebit: Double,
-        openingCredit: Double
+        openingCredit: Double,
+        photoUri: String?
     ) -> Unit,
     onPermissionMessage: (String) -> Unit
 ) {
@@ -197,17 +234,30 @@ fun AddCustomerBottomSheet(
     var address by remember { mutableStateOf("") }
     var openingDebitText by remember { mutableStateOf("") }
     var openingCreditText by remember { mutableStateOf("") }
+    var customerPhotoUri by remember { mutableStateOf<String?>(null) }
     var showMoreCustomerOptions by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val customerGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val copied = copyUriToLocalAvatarFile(context, uri, "customer_avatar")
+            if (!copied.isNullOrBlank()) {
+                customerPhotoUri = copied
+            }
+        }
+    }
 
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                val (pickedName, pickedPhone) = extractContactDetails(context, uri)
+                val (pickedName, pickedPhone, pickedPhoto) = extractContactDetails(context, uri)
                 if (pickedName.isNotBlank()) name = pickedName
                 if (pickedPhone.isNotBlank()) phone = pickedPhone
+                if (!pickedPhoto.isNullOrBlank()) customerPhotoUri = pickedPhoto
                 errorMessage = null
             } catch (e: Exception) {
                 onPermissionMessage(
@@ -326,23 +376,94 @@ fun AddCustomerBottomSheet(
                 }
             }
 
-            OutlinedTextField(
-                value = name,
-                onValueChange = {
-                    name = it
-                    errorMessage = null
-                },
-                label = { Text(strings.customerNameLabel) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("customer_name_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = TallyCyanRefraction,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Clickable Customer Photo Picker Avatar
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clickable {
+                            customerGalleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                        .testTag("add_customer_avatar_picker"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(TallyCyanRefraction.copy(alpha = 0.18f))
+                            .border(1.5.dp, TallyCyanRefraction, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!customerPhotoUri.isNullOrBlank()) {
+                            AsyncImage(
+                                model = if (customerPhotoUri!!.startsWith("/")) File(customerPhotoUri!!) else customerPhotoUri,
+                                contentDescription = name.ifBlank { strings.customerNameLabel },
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                            )
+                        } else if (name.isNotBlank()) {
+                            Text(
+                                text = name.trim().take(1).uppercase(),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = TallyCyanRefraction,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AddAPhoto,
+                                contentDescription = if (strings.isBn) "ছবি যোগ করুন" else "Add Photo",
+                                tint = TallyCyanRefraction,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    if (!customerPhotoUri.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(TallyRubyRed)
+                                .clickable { customerPhotoUri = null },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = strings.closeButton,
+                                tint = Color.White,
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        errorMessage = null
+                    },
+                    label = { Text(strings.customerNameLabel) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("customer_name_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = TallyCyanRefraction,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
                 )
-            )
+            }
 
             OutlinedTextField(
                 value = phone,
@@ -525,7 +646,7 @@ fun AddCustomerBottomSheet(
                         } else {
                             val debit = openingDebitText.toDoubleOrNull() ?: 0.0
                             val credit = openingCreditText.toDoubleOrNull() ?: 0.0
-                            onSaveCustomer(name, phone, partyType, address, debit, credit)
+                            onSaveCustomer(name, phone, partyType, address, debit, credit, customerPhotoUri)
                         }
                     },
                     accentColor = TallyEmeraldGreen,
@@ -1601,6 +1722,8 @@ fun FirstLaunchSetupDialog(
     initialOwnerPhone: String = "",
     initialAccountType: String = "BUSINESS",
     initialStep: Int = 0,
+    profilePhotoUri: String = "",
+    onUpdateProfilePhoto: ((Uri?) -> Unit)? = null,
     onLanguageChange: (String) -> Unit,
     onThemeChange: ((Boolean) -> Unit)? = null,
     onAccountTypeChange: ((String) -> Unit)? = null,
@@ -1619,6 +1742,13 @@ fun FirstLaunchSetupDialog(
         firstCustomerOpeningCredit: Double
     ) -> Unit
 ) {
+    val setupPhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            onUpdateProfilePhoto?.invoke(uri)
+        }
+    }
     var currentStep by remember { mutableStateOf(initialStep.coerceIn(0, 2)) }
     var accountType by remember(initialAccountType) {
         mutableStateOf(
@@ -2028,22 +2158,62 @@ fun FirstLaunchSetupDialog(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
+                                                val stepAccent = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(44.dp)
-                                                        .clip(RoundedCornerShape(14.dp))
-                                                        .background(
-                                                            (if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen)
-                                                                .copy(alpha = 0.18f)
-                                                        ),
+                                                        .size(54.dp)
+                                                        .clickable(enabled = onUpdateProfilePhoto != null) {
+                                                            setupPhotoLauncher.launch(
+                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                            )
+                                                        }
+                                                        .testTag("setup_profile_photo_picker"),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Icon(
-                                                        imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
-                                                        contentDescription = null,
-                                                        tint = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen,
-                                                        modifier = Modifier.size(24.dp)
-                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(50.dp)
+                                                            .clip(CircleShape)
+                                                            .background(stepAccent.copy(alpha = 0.18f))
+                                                            .border(1.5.dp, stepAccent, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (profilePhotoUri.isNotBlank()) {
+                                                            AsyncImage(
+                                                                model = if (profilePhotoUri.startsWith("/")) File(profilePhotoUri) else profilePhotoUri,
+                                                                contentDescription = null,
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .clip(CircleShape)
+                                                            )
+                                                        } else {
+                                                            Icon(
+                                                                imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
+                                                                contentDescription = null,
+                                                                tint = stepAccent,
+                                                                modifier = Modifier.size(24.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    if (onUpdateProfilePhoto != null) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .align(Alignment.BottomEnd)
+                                                                .size(18.dp)
+                                                                .clip(CircleShape)
+                                                                .background(stepAccent)
+                                                                .border(1.dp, Color.White, CircleShape),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.AddAPhoto,
+                                                                contentDescription = null,
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(10.dp)
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                                 Column {
                                                     Text(

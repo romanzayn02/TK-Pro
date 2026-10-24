@@ -232,6 +232,7 @@ fun TallyKhataProApp(
                         useDarkGlass = useDarkGlass,
                         profileName = uiState.settings.businessName.ifBlank { strings.appTitle },
                         currencySymbol = uiState.settings.currencySymbol,
+                        profilePhotoUri = uiState.settings.effectiveProfilePhoto,
                         onUnlocked = { isBiometricUnlocked = true }
                     )
                 }
@@ -246,6 +247,10 @@ fun TallyKhataProApp(
                         initialOwnerPhone = uiState.settings.ownerPhone,
                         initialAccountType = uiState.settings.accountType,
                         initialStep = manualWelcomeStartStep ?: 0,
+                        profilePhotoUri = uiState.settings.effectiveProfilePhoto,
+                        onUpdateProfilePhoto = { uri ->
+                            viewModel.updateOwnerProfilePhoto(context, uri)
+                        },
                         onLanguageChange = { lang -> viewModel.setLanguage(lang) },
                         onThemeChange = { dark -> viewModel.toggleGlassThemeMode(dark) },
                         onAccountTypeChange = { accType -> viewModel.setAccountType(accType) },
@@ -300,6 +305,7 @@ fun TallyKhataProApp(
                                 TopLiquidAppBar(
                                     appTitle = strings.appTitle,
                                     useDarkGlass = useDarkGlass,
+                                    profilePhotoUri = uiState.settings.effectiveProfilePhoto,
                                     isSettingsSelected = uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS,
                                     onSettingsClick = {
                                         if (uiState.selectedCustomerDetail == null && uiState.currentTab == MainTab.SETTINGS) {
@@ -363,6 +369,9 @@ fun TallyKhataProApp(
                                         },
                                         onDeleteCustomer = {
                                             viewModel.deleteCustomer(selectedDetail.customer.id)
+                                        },
+                                        onUpdateCustomerPhoto = { uri ->
+                                            viewModel.updateCustomerPhoto(context, selectedDetail.customer.id, uri)
                                         }
                                     )
                                 } else {
@@ -492,14 +501,15 @@ fun TallyKhataProApp(
             useDarkGlass = useDarkGlass,
             currencySymbol = uiState.settings.currencySymbol,
             onDismiss = { showAddCustomerSheet = false },
-            onSaveCustomer = { name, phone, partyType, address, openingDebit, openingCredit ->
+            onSaveCustomer = { name, phone, partyType, address, openingDebit, openingCredit, photoUri ->
                 viewModel.addCustomer(
                     name = name,
                     phone = phone,
                     partyType = partyType,
                     address = address,
                     openingDebit = openingDebit,
-                    openingCredit = openingCredit
+                    openingCredit = openingCredit,
+                    photoUri = photoUri
                 ) {
                     showAddCustomerSheet = false
                 }
@@ -576,6 +586,7 @@ fun TallyKhataProApp(
 private fun TopLiquidAppBar(
     appTitle: String,
     useDarkGlass: Boolean,
+    profilePhotoUri: String = "",
     isSettingsSelected: Boolean = false,
     onSettingsClick: () -> Unit,
     settingsLabel: String
@@ -635,14 +646,29 @@ private fun TopLiquidAppBar(
                 .size(42.dp)
                 .clip(CircleShape)
                 .background(settingsBg)
-                .border(1.dp, if (useDarkGlass) Color(0xFF334155) else Color(0xFFE2E8F0), CircleShape)
+                .border(
+                    width = if (isSettingsSelected) 1.5.dp else 1.dp,
+                    color = if (isSettingsSelected) TallyCyanRefraction else if (useDarkGlass) Color(0xFF334155) else Color(0xFFE2E8F0),
+                    shape = CircleShape
+                )
                 .testTag("top_bar_settings_button")
         ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = settingsLabel,
-                tint = settingsIconTint
-            )
+            if (profilePhotoUri.isNotBlank() && !isSettingsSelected) {
+                coil.compose.AsyncImage(
+                    model = if (profilePhotoUri.startsWith("/")) java.io.File(profilePhotoUri) else profilePhotoUri,
+                    contentDescription = settingsLabel,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = settingsLabel,
+                    tint = settingsIconTint
+                )
+            }
         }
     }
 }

@@ -51,7 +51,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.data.CustomerWithBalance
 import com.example.data.TransactionEntity
 import com.example.data.TransactionWithCustomer
@@ -272,6 +278,7 @@ fun CustomerDetailScreen(
     onEditTransaction: (TransactionEntity) -> Unit,
     onDeleteTransaction: (Long) -> Unit,
     onDeleteCustomer: () -> Unit,
+    onUpdateCustomerPhoto: (Uri?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onBack)
@@ -283,6 +290,14 @@ fun CustomerDetailScreen(
         net > 0.001 -> TallyRubyRed
         net < -0.001 -> TallyEmeraldGreen
         else -> TallyCyanRefraction
+    }
+
+    val customerPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            onUpdateCustomerPhoto(uri)
+        }
     }
 
     var showDeleteCustomerConfirm by remember { mutableStateOf(false) }
@@ -352,7 +367,66 @@ fun CustomerDetailScreen(
                                         contentDescription = strings.cancelButton
                                     )
                                 }
-                                Column {
+
+                                // Tappable Customer Avatar with Camera Badge to upload/change local photo
+                                val avatarColor = Color(customer.avatarColorHex)
+                                val customerPhoto = customer.photoUri?.trim().orEmpty()
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clickable {
+                                            customerPhotoPickerLauncher.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        }
+                                        .testTag("customer_detail_avatar_picker"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(CircleShape)
+                                            .background(avatarColor.copy(alpha = 0.24f))
+                                            .border(1.5.dp, avatarColor, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (customerPhoto.isNotBlank()) {
+                                            AsyncImage(
+                                                model = if (customerPhoto.startsWith("/")) File(customerPhoto) else customerPhoto,
+                                                contentDescription = customer.name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(CircleShape)
+                                            )
+                                        } else {
+                                            Text(
+                                                text = customer.name.trim().take(1).uppercase(),
+                                                style = MaterialTheme.typography.titleLarge,
+                                                color = avatarColor,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(TallyCyanRefraction)
+                                            .border(1.dp, Color.White, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AddAPhoto,
+                                            contentDescription = if (strings.isBn) "ছবি পরিবর্তন" else "Change Photo",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Text(
                                         text = customer.name,
                                         style = MaterialTheme.typography.titleLarge,

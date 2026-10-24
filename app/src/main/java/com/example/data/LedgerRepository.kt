@@ -19,6 +19,8 @@ data class AppSettings(
     val ownerPhone: String = "",
     val currencySymbol: String = "৳",
     val language: String = "BN", // "BN" (বাংলা) default, or "EN" (English)
+    val profilePhotoUri: String = "", // Local override image path on device (no cloud sync)
+    val googlePhotoUrl: String = "",  // Default Google Account profile picture URL
     val customCategories: List<String> = listOf(
         "বাকিতে বিক্রি",
         "নগদ জমা",
@@ -40,7 +42,13 @@ data class AppSettings(
     val lastSheetSyncedAtMillis: Long = 0L,
     val hasPendingCloudSync: Boolean = false,
     val lastSyncError: String = ""
-)
+) {
+    /**
+     * Effective profile photo to display: local custom upload if set, otherwise Google account photo URL.
+     */
+    val effectiveProfilePhoto: String
+        get() = profilePhotoUri.ifBlank { googlePhotoUrl }
+}
 
 class LedgerRepository(
     private val dao: LedgerDao,
@@ -52,6 +60,8 @@ class LedgerRepository(
         val OWNER_PHONE = stringPreferencesKey("owner_phone")
         val CURRENCY_SYMBOL = stringPreferencesKey("currency_symbol")
         val LANGUAGE = stringPreferencesKey("language")
+        val PROFILE_PHOTO_URI = stringPreferencesKey("profile_photo_uri")
+        val GOOGLE_PHOTO_URL = stringPreferencesKey("google_photo_url")
         val CUSTOM_CATEGORIES = stringPreferencesKey("custom_categories")
         val USE_DARK_GLASS = booleanPreferencesKey("use_dark_glass")
         val BIOMETRIC_LOCK_ENABLED = booleanPreferencesKey("biometric_lock_enabled")
@@ -81,12 +91,15 @@ class LedgerRepository(
         } else {
             rawCats.split("|").filter { it.isNotBlank() }
         }
+        val fallbackGooglePhoto = GoogleDocsSyncService.getSignedInPhotoUrl(context).orEmpty()
         AppSettings(
             accountType = prefs[Keys.ACCOUNT_TYPE] ?: "BUSINESS",
             businessName = prefs[Keys.BUSINESS_NAME] ?: "",
             ownerPhone = prefs[Keys.OWNER_PHONE] ?: "",
             currencySymbol = prefs[Keys.CURRENCY_SYMBOL] ?: "৳",
             language = prefs[Keys.LANGUAGE] ?: "BN",
+            profilePhotoUri = prefs[Keys.PROFILE_PHOTO_URI] ?: "",
+            googlePhotoUrl = (prefs[Keys.GOOGLE_PHOTO_URL] ?: "").ifBlank { fallbackGooglePhoto },
             customCategories = categories,
             useDarkGlassTheme = prefs[Keys.USE_DARK_GLASS] ?: false,
             biometricLockEnabled = prefs[Keys.BIOMETRIC_LOCK_ENABLED] ?: false,
@@ -119,7 +132,8 @@ class LedgerRepository(
         phone: String,
         partyType: String,
         address: String = "",
-        avatarColorHex: Long = 0xFF0091EA
+        avatarColorHex: Long = 0xFF0091EA,
+        photoUri: String? = null
     ): Long {
         val now = System.currentTimeMillis()
         val id = dao.insertCustomer(
@@ -129,6 +143,7 @@ class LedgerRepository(
                 partyType = partyType,
                 address = address.trim(),
                 avatarColorHex = avatarColorHex,
+                photoUri = photoUri?.takeIf { it.isNotBlank() },
                 createdAt = now,
                 updatedAt = now
             )
@@ -140,6 +155,17 @@ class LedgerRepository(
     suspend fun updateCustomer(customer: CustomerEntity) {
         dao.updateCustomer(customer.copy(updatedAt = System.currentTimeMillis()))
         markPendingCloudSync()
+    }
+
+    suspend fun updateCustomerPhoto(customerId: Long, photoUri: String?) {
+        val existing = dao.getAllCustomersSnapshot().find { it.id == customerId } ?: return
+        dao.updateCustomer(
+            existing.copy(
+                photoUri = photoUri?.takeIf { it.isNotBlank() },
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        // Note: Customer photos are device-local only and do not need to trigger cloud sync
     }
 
     suspend fun deleteCustomer(customerId: Long) {
@@ -234,6 +260,18 @@ class LedgerRepository(
     suspend fun updateLanguage(lang: String) {
         context.dataStore.edit { prefs ->
             prefs[Keys.LANGUAGE] = lang
+        }
+    }
+
+    suspend fun updateOwnerProfilePhoto(photoUri: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.PROFILE_PHOTO_URI] = photoUri.trim()
+        }
+    }
+
+    suspend fun updateGooglePhotoUrl(googlePhotoUrl: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.GOOGLE_PHOTO_URL] = googlePhotoUrl.trim()
         }
     }
 
@@ -415,6 +453,17 @@ class LedgerRepository(
             val customersJson = root.optJSONArray("customers") ?: JSONArray()
             val transactionsJson = root.optJSONArray("transactions") ?: JSONArray()
 
+            // Map existing local photos by ID and by (name, phone) so cloud restore preserves local device avatars
+            val existingLocalCustomers = dao.getAllCustomersSnapshot()
+            val localPhotoById = existingLocalCustomers.mapNotNull { c ->
+                c.photoUri?.takeIf { it.isNotBlank() }?.let { c.id to it }
+            }.toMap()
+            val localPhotoByIdentity = existingLocalCustomers.mapNotNull { c ->
+                c.photoUri?.takeIf { it.isNotBlank() }?.let {
+                    "${c.name.trim().lowercase()}_${c.phone.trim()}" to it
+                }
+            }.toMap()
+
             val customers = mutableListOf<CustomerEntity>()
             var maxCustomerId = 0L
             for (i in 0 until customersJson.length()) {
@@ -422,14 +471,19 @@ class LedgerRepository(
                 val rawId = obj.optLong("id", 0L)
                 val resolvedId = if (rawId > 0L) rawId else (maxCustomerId + 1L)
                 if (resolvedId > maxCustomerId) maxCustomerId = resolvedId
+                val cName = obj.optString("name", "Customer").trim().ifEmpty { "Customer" }
+                val cPhone = obj.optString("phone", "").trim()
+                val preservedPhoto = localPhotoById[resolvedId]
+                    ?: localPhotoByIdentity["${cName.lowercase()}_$cPhone"]
                 customers.add(
                     CustomerEntity(
                         id = resolvedId,
-                        name = obj.optString("name", "Customer").trim().ifEmpty { "Customer" },
-                        phone = obj.optString("phone", "").trim(),
+                        name = cName,
+                        phone = cPhone,
                         partyType = obj.optString("partyType", "CUSTOMER").ifBlank { "CUSTOMER" },
                         address = obj.optString("address", "").trim(),
                         avatarColorHex = obj.optLong("avatarColorHex", 0xFF0091EA),
+                        photoUri = preservedPhoto,
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
                     )
@@ -501,7 +555,7 @@ class LedgerRepository(
                 currentPrefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
             )
             if (lastSyncMillis > 0L) {
-                val localCustomers = dao.getAllCustomersSnapshot()
+                val localCustomers = existingLocalCustomers
                 val localTransactions = dao.getAllTransactionsSnapshot()
                 val cloudCustomerIds = customers.map { it.id }.toMutableSet()
                 val cloudCustomerIdentityMap = customers.associateBy {

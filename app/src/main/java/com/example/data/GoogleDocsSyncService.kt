@@ -72,6 +72,7 @@ object GoogleDocsSyncService {
 
     private const val AUTH_PREFS_NAME = "tkpro_google_auth_prefs"
     private const val KEY_SIGNED_IN_EMAIL = "signed_in_google_email"
+    private const val KEY_SIGNED_IN_PHOTO_URL = "signed_in_google_photo_url"
 
     private val httpClient = OkHttpClient()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -98,6 +99,69 @@ object GoogleDocsSyncService {
         } else {
             prefs.edit().putString(KEY_SIGNED_IN_EMAIL, email.trim()).apply()
         }
+    }
+
+    fun saveSignedInPhotoUrl(context: Context, photoUrl: String?) {
+        val prefs = context.getSharedPreferences(AUTH_PREFS_NAME, Context.MODE_PRIVATE)
+        if (photoUrl.isNullOrBlank()) {
+            prefs.edit().remove(KEY_SIGNED_IN_PHOTO_URL).apply()
+        } else {
+            prefs.edit().putString(KEY_SIGNED_IN_PHOTO_URL, photoUrl.trim()).apply()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    fun getSignedInPhotoUrl(context: Context): String? {
+        val prefs = context.getSharedPreferences(AUTH_PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_SIGNED_IN_PHOTO_URL, null)?.trim()
+        if (!saved.isNullOrEmpty()) {
+            return saved
+        }
+        val gsoPhoto = GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()?.trim()
+        if (!gsoPhoto.isNullOrEmpty()) {
+            saveSignedInPhotoUrl(context, gsoPhoto)
+            return gsoPhoto
+        }
+        return null
+    }
+
+    /**
+     * Fetches the user's Google Account profile picture URL using the authorized Drive API v3 `about` endpoint
+     * (which works with `drive.file` scope without requiring extra OAuth scopes) or GoogleSignInAccount fallback.
+     */
+    @Suppress("DEPRECATION")
+    suspend fun fetchAndSaveGoogleProfilePhoto(context: Context, accessToken: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url("https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)")
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string().orEmpty()
+                    val userObj = JSONObject(bodyStr).optJSONObject("user")
+                    val email = userObj?.optString("emailAddress")?.trim()
+                    if (!email.isNullOrEmpty()) {
+                        saveSignedInEmail(context, email)
+                    }
+                    val rawPhoto = userObj?.optString("photoLink")?.trim()
+                    if (!rawPhoto.isNullOrEmpty()) {
+                        val normalizedPhoto = if (rawPhoto.startsWith("//")) "https:$rawPhoto" else rawPhoto
+                        saveSignedInPhotoUrl(context, normalizedPhoto)
+                        return@withContext normalizedPhoto
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val fallback = GoogleSignIn.getLastSignedInAccount(context)?.photoUrl?.toString()?.trim()
+        if (!fallback.isNullOrEmpty()) {
+            saveSignedInPhotoUrl(context, fallback)
+            return@withContext fallback
+        }
+        return@withContext getSignedInPhotoUrl(context)
     }
 
     @Suppress("DEPRECATION")
@@ -154,6 +218,7 @@ object GoogleDocsSyncService {
 
     @Suppress("DEPRECATION")
     suspend fun signOutAndBuildSignInIntent(context: Context): Intent = withContext(Dispatchers.IO) {
+        saveSignedInPhotoUrl(context, null)
         try {
             val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()

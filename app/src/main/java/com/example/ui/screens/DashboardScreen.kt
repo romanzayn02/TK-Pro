@@ -77,7 +77,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.example.data.CustomerWithBalance
 import com.example.ui.AppStrings
 import com.example.ui.CustomerFilter
@@ -90,6 +92,7 @@ import com.example.ui.theme.TallyCyanRefraction
 import com.example.ui.theme.TallyEmeraldGreen
 import com.example.ui.theme.TallyGoldAccent
 import com.example.ui.theme.TallyRubyRed
+import java.io.File
 import kotlin.math.abs
 
 @Composable
@@ -170,23 +173,35 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
+                            val effectiveOwnerPhoto = uiState.settings.effectiveProfilePhoto
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .size(44.dp)
+                                    .clip(if (effectiveOwnerPhoto.isNotBlank()) CircleShape else RoundedCornerShape(14.dp))
                                     .background(TallyCyanRefraction.copy(alpha = 0.18f))
                                     .border(
-                                        1.dp,
-                                        TallyCyanRefraction.copy(alpha = 0.5f),
-                                        RoundedCornerShape(14.dp)
+                                        1.2.dp,
+                                        TallyCyanRefraction.copy(alpha = 0.6f),
+                                        if (effectiveOwnerPhoto.isNotBlank()) CircleShape else RoundedCornerShape(14.dp)
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = if (strings.isIndividual) Icons.Default.Person else Icons.Default.Storefront,
-                                    contentDescription = null,
-                                    tint = TallyCyanRefraction
-                                )
+                                if (effectiveOwnerPhoto.isNotBlank()) {
+                                    AsyncImage(
+                                        model = if (effectiveOwnerPhoto.startsWith("/")) File(effectiveOwnerPhoto) else effectiveOwnerPhoto,
+                                        contentDescription = uiState.settings.businessName.ifBlank { strings.appTitle },
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (strings.isIndividual) Icons.Default.Person else Icons.Default.Storefront,
+                                        contentDescription = null,
+                                        tint = TallyCyanRefraction
+                                    )
+                                }
                             }
                             Column {
                                 val isGoogleConnected = uiState.settings.syncedGoogleDocId.isNotBlank() ||
@@ -851,8 +866,9 @@ private fun CustomerLedgerRowCard(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Initials Frosted Avatar
+                    // Customer Photo or Initials Frosted Avatar
                     val avatarColor = Color(item.customer.avatarColorHex)
+                    val customerPhoto = item.customer.photoUri?.trim().orEmpty()
                     Box(
                         modifier = Modifier
                             .size(48.dp)
@@ -861,12 +877,23 @@ private fun CustomerLedgerRowCard(
                             .border(1.5.dp, avatarColor, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = item.customer.name.trim().take(1).uppercase(),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = avatarColor,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (customerPhoto.isNotBlank()) {
+                            AsyncImage(
+                                model = if (customerPhoto.startsWith("/")) File(customerPhoto) else customerPhoto,
+                                contentDescription = item.customer.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Text(
+                                text = item.customer.name.trim().take(1).uppercase(),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = avatarColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     Column {

@@ -80,12 +80,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.data.AppSettings
 import com.example.ui.AppStrings
 import com.example.ui.GoogleDocsSyncAction
@@ -99,6 +103,7 @@ import com.example.ui.theme.TallyCyanRefraction
 import com.example.ui.theme.TallyEmeraldGreen
 import com.example.ui.theme.TallyGoldAccent
 import com.example.ui.theme.TallyRubyRed
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -233,6 +238,14 @@ fun SettingsScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.importDatabaseFromUri(context, uri)
+        }
+    }
+
+    val ownerPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.updateOwnerProfilePhoto(context, uri)
         }
     }
 
@@ -892,12 +905,23 @@ fun SettingsScreen(
                             useDarkGlass = useDarkGlass,
                             accentColor = if (!signedInEmail.isNullOrBlank()) TallyEmeraldGreen else TallyCyanRefraction,
                             leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.AccountCircle,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
-                                    tint = if (!signedInEmail.isNullOrBlank()) Color.White else TallyCyanRefraction
-                                )
+                                if (settings.googlePhotoUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = settings.googlePhotoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (!signedInEmail.isNullOrBlank()) Color.White else TallyCyanRefraction
+                                    )
+                                }
                             },
                             modifier = Modifier.weight(1.1f),
                             testTag = "switch_google_account_button"
@@ -1417,6 +1441,143 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+
+                    // Owner Profile Picture Section (Default: Google Profile Photo, Override: Local Device Photo with No Sync)
+                    val effectivePhoto = settings.effectiveProfilePhoto
+                    val hasCustomLocalPhoto = settings.profilePhotoUri.isNotBlank()
+                    val hasGooglePhoto = settings.googlePhotoUrl.isNotBlank()
+                    val profileAccent = if (isIndividual) TallyCyanRefraction else TallyEmeraldGreen
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(profileAccent.copy(alpha = 0.10f))
+                            .border(1.dp, profileAccent.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clickable {
+                                    ownerPhotoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                                .testTag("settings_owner_avatar_picker"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .clip(CircleShape)
+                                    .background(profileAccent.copy(alpha = 0.22f))
+                                    .border(2.dp, profileAccent, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (effectivePhoto.isNotBlank()) {
+                                    AsyncImage(
+                                        model = if (effectivePhoto.startsWith("/")) File(effectivePhoto) else effectivePhoto,
+                                        contentDescription = settings.businessName.ifBlank { strings.appTitle },
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (isIndividual) Icons.Default.Person else Icons.Default.Storefront,
+                                        contentDescription = null,
+                                        tint = profileAccent,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(profileAccent)
+                                    .border(1.5.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AddAPhoto,
+                                    contentDescription = if (strings.isBn) "ছবি আপলোড" else "Upload Photo",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = if (strings.isBn) {
+                                    when {
+                                        hasCustomLocalPhoto -> "প্রোফাইল ছবি (ডিভাইস গ্যালারি)"
+                                        hasGooglePhoto -> "প্রোফাইল ছবি (Google অ্যাকাউন্ট ডিফল্ট)"
+                                        else -> "প্রোফাইল ছবি যুক্ত করুন"
+                                    }
+                                } else {
+                                    when {
+                                        hasCustomLocalPhoto -> "Profile Photo (Custom Device Image)"
+                                        hasGooglePhoto -> "Profile Photo (Google Account Default)"
+                                        else -> "Profile Picture"
+                                    }
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (strings.isBn) {
+                                    "ডিফল্টভাবে Google ছবি দেখায়। গ্যালারি থেকে আপলোড করা ছবি ক্লাউডে সিঙ্ক ছাড়াই শুধু এই ফোনে থাকে।"
+                                } else {
+                                    "Uses your Google photo by default. Uploaded photos stay on this device only (no cloud sync)."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LiquidFilterChip(
+                                    label = if (strings.isBn) "📷 গ্যালারি থেকে" else "📷 Upload Photo",
+                                    selected = false,
+                                    onClick = {
+                                        ownerPhotoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    useDarkGlass = useDarkGlass,
+                                    accentColor = profileAccent,
+                                    testTag = "upload_owner_photo_button"
+                                )
+                                if (hasCustomLocalPhoto) {
+                                    LiquidFilterChip(
+                                        label = if (hasGooglePhoto) {
+                                            if (strings.isBn) "Google ছবি" else "Use Google Photo"
+                                        } else {
+                                            if (strings.isBn) "রিসেট" else "Reset"
+                                        },
+                                        selected = false,
+                                        onClick = {
+                                            viewModel.updateOwnerProfilePhoto(context, null)
+                                        },
+                                        useDarkGlass = useDarkGlass,
+                                        accentColor = TallyGoldAccent,
+                                        testTag = "reset_owner_photo_to_google_button"
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // Account Mode Selector: Business vs Individual

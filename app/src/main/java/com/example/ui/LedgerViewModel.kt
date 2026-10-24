@@ -156,7 +156,21 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         } catch (_: Exception) {
         }
         viewModelScope.launch {
+            val cachedGooglePhoto = GoogleDocsSyncService.getSignedInPhotoUrl(application).orEmpty()
+            if (cachedGooglePhoto.isNotBlank()) {
+                repository.updateGooglePhotoUrl(cachedGooglePhoto)
+            }
             val initialSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+            // Silently fetch Google profile photo if signed in and online
+            if (checkIsOnline() && !GoogleDocsSyncService.getSignedInEmail(application).isNullOrBlank()) {
+                val auth = GoogleDocsSyncService.authorizeGoogleDocs(application)
+                if (auth is GoogleDocsAuthOutcome.Authorized) {
+                    val fetchedPhoto = GoogleDocsSyncService.fetchAndSaveGoogleProfilePhoto(application, auth.accessToken)
+                    if (!fetchedPhoto.isNullOrBlank()) {
+                        repository.updateGooglePhotoUrl(fetchedPhoto)
+                    }
+                }
+            }
             val hasCloudTarget = initialSettings.syncedGoogleDocId.isNotBlank() ||
                 initialSettings.syncedGoogleSheetId.isNotBlank()
             if (hasCloudTarget && initialSettings.hasPendingCloudSync) {
@@ -357,6 +371,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         address: String,
         openingDebit: Double = 0.0,
         openingCredit: Double = 0.0,
+        photoUri: String? = null,
         onCreated: (Long) -> Unit = {}
     ) {
         if (name.isBlank()) return
@@ -375,7 +390,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 phone = phone,
                 partyType = partyType,
                 address = address,
-                avatarColorHex = color
+                avatarColorHex = color,
+                photoUri = photoUri
             )
             if (openingDebit > 0.0) {
                 repository.addTransaction(
@@ -402,6 +418,45 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             _statusBannerMessage.value = "✅ ${name.trim()} খাতায় যুক্ত হয়েছে"
             onCreated(newId)
             triggerAutoSyncGoogleDocsIfConfigured()
+        }
+    }
+
+    fun updateCustomerPhoto(context: Context, customerId: Long, sourceUri: Uri?) {
+        viewModelScope.launch {
+            val savedPath = if (sourceUri != null) {
+                copyAvatarToInternalStorage(context, sourceUri, "customer_$customerId")
+            } else {
+                null
+            }
+            repository.updateCustomerPhoto(customerId, savedPath)
+            val isBn = uiState.value.settings.language != "EN"
+            _statusBannerMessage.value = if (savedPath != null) {
+                if (isBn) "✅ কাস্টমারের ছবি সেভ হয়েছে (ডিভাইসে)" else "✅ Customer photo saved on device"
+            } else {
+                if (isBn) "✅ কাস্টমারের ছবি সরানো হয়েছে" else "✅ Customer photo removed"
+            }
+        }
+    }
+
+    fun updateOwnerProfilePhoto(context: Context, sourceUri: Uri?) {
+        viewModelScope.launch {
+            val savedPath = if (sourceUri != null) {
+                copyAvatarToInternalStorage(context, sourceUri, "owner_profile").orEmpty()
+            } else {
+                ""
+            }
+            repository.updateOwnerProfilePhoto(savedPath)
+            val isBn = uiState.value.settings.language != "EN"
+            _statusBannerMessage.value = if (savedPath.isNotBlank()) {
+                if (isBn) "✅ প্রোফাইল ছবি সেভ হয়েছে (শুধুমাত্র এই ডিভাইসে)" else "✅ Profile photo saved on device"
+            } else {
+                val hasGooglePhoto = uiState.value.settings.googlePhotoUrl.isNotBlank()
+                if (hasGooglePhoto) {
+                    if (isBn) "✅ ডিফল্ট Google প্রোফাইল ছবি সেট করা হয়েছে" else "✅ Reset to default Google profile photo"
+                } else {
+                    if (isBn) "✅ প্রোফাইল ছবি রিসেট করা হয়েছে" else "✅ Profile photo reset"
+                }
+            }
         }
     }
 
@@ -485,6 +540,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         onLaunchSignInIntent: (android.content.Intent, GoogleDocsSyncAction, String?) -> Unit
     ) {
         viewModelScope.launch {
+            repository.updateGooglePhotoUrl("")
             val intent = GoogleDocsSyncService.signOutAndBuildSignInIntent(context)
             onLaunchSignInIntent(intent, action, customDocIdInput)
         }
@@ -741,6 +797,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         customDocIdInput: String?
     ) {
         val appContext = getApplication<Application>()
+        // Fetch and save Google Account profile picture URL automatically whenever authorized
+        val fetchedGooglePhoto = GoogleDocsSyncService.fetchAndSaveGoogleProfilePhoto(appContext, accessToken)
+        if (!fetchedGooglePhoto.isNullOrBlank()) {
+            repository.updateGooglePhotoUrl(fetchedGooglePhoto)
+        }
         val currentSettings = repository.settingsFlow.first()
         val isBn = currentSettings.language != "EN"
 
@@ -1106,6 +1167,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             _isSyncingGoogleDocs.value = true
             val authOutcome = GoogleDocsSyncService.authorizeGoogleDocs(appContext)
             if (authOutcome is GoogleDocsAuthOutcome.Authorized) {
+                val fetchedGooglePhoto = GoogleDocsSyncService.fetchAndSaveGoogleProfilePhoto(appContext, authOutcome.accessToken)
+                if (!fetchedGooglePhoto.isNullOrBlank()) {
+                    repository.updateGooglePhotoUrl(fetchedGooglePhoto)
+                }
                 val customers = repository.getAllCustomersSnapshot()
                 val transactions = repository.getAllTransactionsSnapshot()
                 val rawJson = repository.exportBackupJson(currentSettings)
@@ -1255,6 +1320,32 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
                 destFile.absolutePath
+            } catch (e: Exception) {
+                sourceUri.toString()
+            }
+        }
+    }
+
+    suspend fun copyAvatarToInternalStorage(
+        context: Context,
+        sourceUri: Uri,
+        prefix: String = "avatar"
+    ): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val dir = File(context.filesDir, "avatars").apply { mkdirs() }
+                val destFile = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
+                val copied = context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                    true
+                } ?: false
+                if (copied && destFile.exists() && destFile.length() > 0L) {
+                    destFile.absolutePath
+                } else {
+                    sourceUri.toString()
+                }
             } catch (e: Exception) {
                 sourceUri.toString()
             }

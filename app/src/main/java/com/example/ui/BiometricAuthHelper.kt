@@ -191,6 +191,7 @@ fun BiometricLockScreen(
     profileName: String,
     currencySymbol: String,
     useDarkGlass: Boolean,
+    profilePhotoUri: String = "",
     onUnlocked: () -> Unit
 ) {
     val context = LocalContext.current
@@ -256,21 +257,55 @@ fun BiometricLockScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    // Glowing Fingerprint Badge
+                    // Glowing Avatar / Fingerprint Badge
                     Box(
-                        modifier = Modifier
-                            .size(88.dp)
-                            .clip(CircleShape)
-                            .background(TallyCyanRefraction.copy(alpha = 0.16f))
-                            .border(2.dp, TallyCyanRefraction.copy(alpha = 0.7f), CircleShape),
+                        modifier = Modifier.size(92.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Fingerprint,
-                            contentDescription = if (isBn) "ফিঙ্গারপ্রিন্ট আনলক" else "Fingerprint Unlock",
-                            tint = TallyCyanRefraction,
-                            modifier = Modifier.size(48.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .clip(CircleShape)
+                                .background(TallyCyanRefraction.copy(alpha = 0.16f))
+                                .border(2.dp, TallyCyanRefraction.copy(alpha = 0.7f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (profilePhotoUri.isNotBlank()) {
+                                coil.compose.AsyncImage(
+                                    model = if (profilePhotoUri.startsWith("/")) java.io.File(profilePhotoUri) else profilePhotoUri,
+                                    contentDescription = profileName,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = if (isBn) "ফিঙ্গারপ্রিন্ট আনলক" else "Fingerprint Unlock",
+                                    tint = TallyCyanRefraction,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
+                        }
+                        if (profilePhotoUri.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(TallyCyanRefraction)
+                                    .border(1.5.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
 
                     // Security Pill

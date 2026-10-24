@@ -13,6 +13,7 @@ data class CustomerEntity(
     val partyType: String = "CUSTOMER", // "CUSTOMER" (কাস্টমার) or "SUPPLIER" (সাপ্লায়ার)
     val address: String = "",
     val avatarColorHex: Long = 0xFF00E5FF,
+    val photoUri: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

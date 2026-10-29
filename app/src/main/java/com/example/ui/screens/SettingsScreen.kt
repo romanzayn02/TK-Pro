@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -888,54 +889,133 @@ fun SettingsScreen(
                         }
                     }
 
-                    // 3. Compact Account Login, 1-Tap Cloud Auto-Restore & 403 Fix Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        LiquidFilterChip(
-                            label = signedInEmail ?: if (strings.isBn) "Google লগইন" else "Google Login",
-                            selected = !signedInEmail.isNullOrBlank(),
-                            onClick = {
-                                if (!isSyncingDocs) {
-                                    viewModel.switchGoogleAccountForDocsSync(
-                                        context = context,
-                                        action = GoogleDocsSyncAction.SIGN_IN_ONLY,
-                                        customDocIdInput = null,
-                                        onLaunchSignInIntent = { signInIntent, action, docId ->
-                                            pendingSyncAction = action
-                                            pendingCustomDocId = docId
-                                            googleSignInLauncher.launch(signInIntent)
-                                        }
-                                    )
+                    // 3. Dedicated Account Status Banner + Equal-Height Action Buttons
+                    val isSignedIn = !signedInEmail.isNullOrBlank()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                if (isSignedIn) {
+                                    if (useDarkGlass) Color(0xFF0F2E22) else Color(0xFFE8F5E9)
+                                } else {
+                                    if (useDarkGlass) Color(0xFF1E293B) else Color(0xFFF1F5F9)
                                 }
-                            },
-                            useDarkGlass = useDarkGlass,
-                            accentColor = if (!signedInEmail.isNullOrBlank()) TallyEmeraldGreen else TallyCyanRefraction,
-                            leadingIcon = {
+                            )
+                            .border(
+                                1.dp,
+                                if (isSignedIn) TallyEmeraldGreen.copy(alpha = 0.4f) else (if (useDarkGlass) Color(0xFF334155) else Color(0xFFCBD5E1)),
+                                RoundedCornerShape(16.dp)
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
                                 if (settings.googlePhotoUrl.isNotBlank()) {
                                     AsyncImage(
                                         model = settings.googlePhotoUrl,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
-                                            .size(16.dp)
+                                            .size(34.dp)
                                             .clip(CircleShape)
+                                            .border(1.5.dp, TallyEmeraldGreen, CircleShape)
                                     )
                                 } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AccountCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp),
-                                        tint = if (!signedInEmail.isNullOrBlank()) Color.White else TallyCyanRefraction
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSignedIn) TallyEmeraldGreen.copy(alpha = 0.2f) else TallyCyanRefraction.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AccountCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = if (isSignedIn) TallyEmeraldGreen else TallyCyanRefraction
+                                        )
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (isSignedIn) {
+                                            signedInEmail!!
+                                        } else {
+                                            if (strings.isBn) "Google অ্যাকাউন্ট সংযুক্ত নেই" else "No Google Account Linked"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = if (isSignedIn) {
+                                            if (useDarkGlass) Color(0xFF81C784) else Color(0xFF1B5E20)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        }
+                                    )
+                                    Text(
+                                        text = if (isSignedIn) {
+                                            if (strings.isBn) "লাইভ ক্লাউড ব্যাকআপ সক্রিয়" else "Live Cloud Backup Active"
+                                        } else {
+                                            if (strings.isBn) "সিঙ্ক করতে লগইন করুন" else "Sign in to enable sync"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            },
-                            modifier = Modifier.weight(1.1f),
-                            testTag = "switch_google_account_button"
-                        )
+                            }
 
+                            // Switch / Connect button
+                            SpringyLiquidButton(
+                                onClick = {
+                                    if (!isSyncingDocs) {
+                                        viewModel.switchGoogleAccountForDocsSync(
+                                            context = context,
+                                            action = GoogleDocsSyncAction.SIGN_IN_ONLY,
+                                            customDocIdInput = null,
+                                            onLaunchSignInIntent = { signInIntent, action, docId ->
+                                                pendingSyncAction = action
+                                                pendingCustomDocId = docId
+                                                googleSignInLauncher.launch(signInIntent)
+                                            }
+                                        )
+                                    }
+                                },
+                                accentColor = if (isSignedIn) TallyEmeraldGreen else TallyCyanRefraction,
+                                secondaryColor = if (isSignedIn) Color(0xFF007E33) else Color(0xFF0077B6),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                testTag = "switch_google_account_button"
+                            ) {
+                                Text(
+                                    text = if (isSignedIn) {
+                                        if (strings.isBn) "বদলান" else "Switch"
+                                    } else {
+                                        if (strings.isBn) "লগইন" else "Sign In"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Equal-Height Action Buttons Row (Auto Restore & 403 Fix)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         LiquidFilterChip(
                             label = if (strings.isBn) "অটো রিস্টোর" else "Auto Restore",
                             selected = false,
@@ -966,16 +1046,18 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = Icons.Default.CloudDownload,
                                     contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
+                                    modifier = Modifier.size(16.dp),
                                     tint = TallyEmeraldGreen
                                 )
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
                             testTag = "auto_cloud_restore_button"
                         )
 
                         LiquidFilterChip(
-                            label = if (strings.isBn) "403" else "403 Fix",
+                            label = if (strings.isBn) "403 সমাধান" else "403 Fix",
                             selected = showAccessErrorHelp,
                             onClick = { showAccessErrorHelp = !showAccessErrorHelp },
                             useDarkGlass = useDarkGlass,
@@ -984,10 +1066,13 @@ fun SettingsScreen(
                                 Icon(
                                     imageVector = Icons.Default.HelpOutline,
                                     contentDescription = null,
-                                    modifier = Modifier.size(15.dp),
+                                    modifier = Modifier.size(16.dp),
                                     tint = if (showAccessErrorHelp) Color.White else TallyGoldAccent
                                 )
                             },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
                             testTag = "toggle_403_help_chip"
                         )
                     }
@@ -1554,11 +1639,12 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 LiquidFilterChip(
-                                    label = if (strings.isBn) "📷 গ্যালারি থেকে" else "📷 Upload Photo",
+                                    label = if (strings.isBn) "গ্যালারি থেকে" else "Upload Photo",
                                     selected = false,
                                     onClick = {
                                         ownerPhotoPickerLauncher.launch(
@@ -1567,12 +1653,21 @@ fun SettingsScreen(
                                     },
                                     useDarkGlass = useDarkGlass,
                                     accentColor = profileAccent,
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AddAPhoto,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp),
+                                            tint = profileAccent
+                                        )
+                                    },
+                                    modifier = Modifier.height(42.dp),
                                     testTag = "upload_owner_photo_button"
                                 )
                                 if (hasCustomLocalPhoto) {
                                     LiquidFilterChip(
                                         label = if (hasGooglePhoto) {
-                                            if (strings.isBn) "Google ছবি" else "Use Google Photo"
+                                            if (strings.isBn) "Google ছবি" else "Google Photo"
                                         } else {
                                             if (strings.isBn) "রিসেট" else "Reset"
                                         },
@@ -1582,6 +1677,15 @@ fun SettingsScreen(
                                         },
                                         useDarkGlass = useDarkGlass,
                                         accentColor = TallyGoldAccent,
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Sync,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp),
+                                                tint = TallyGoldAccent
+                                            )
+                                        },
+                                        modifier = Modifier.height(42.dp),
                                         testTag = "reset_owner_photo_to_google_button"
                                     )
                                 }

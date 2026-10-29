@@ -20,6 +20,7 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
@@ -819,6 +820,61 @@ object GoogleDocsSyncService {
         val genericIdRegex = Regex("id=([a-zA-Z0-9-_]+)")
         genericIdRegex.find(trimmed)?.groupValues?.getOrNull(1)?.let { return it }
         return trimmed
+    }
+
+    /**
+     * Queries Google Drive API for the file's last modified time in epoch millis.
+     * Uses minimal bandwidth (<100 bytes) and avoids downloading the document/sheet body.
+     */
+    suspend fun getFileModifiedTimeMillis(
+        accessToken: String,
+        fileId: String
+    ): Long? = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = extractDocIdFromInput(fileId)
+            if (cleanId.isEmpty()) return@withContext null
+
+            val url = "https://www.googleapis.com/drive/v3/files/$cleanId?fields=modifiedTime"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string().orEmpty()
+                val json = JSONObject(bodyStr)
+                val modifiedTimeStr = json.optString("modifiedTime")
+                if (modifiedTimeStr.isNotBlank()) {
+                    parseRfc3339ToMillis(modifiedTimeStr)
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun parseRfc3339ToMillis(dateStr: String): Long? {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                java.time.Instant.parse(dateStr).toEpochMilli()
+            } else {
+                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+                sdf.parse(dateStr)?.time
+            }
+        } catch (_: Exception) {
+            try {
+                val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+                sdf.parse(dateStr)?.time
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     /**

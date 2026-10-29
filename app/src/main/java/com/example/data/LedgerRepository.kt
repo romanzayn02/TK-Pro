@@ -537,8 +537,8 @@ class LedgerRepository(
                     if (oPhone.isNotBlank()) prefs[Keys.OWNER_PHONE] = oPhone.trim()
                     if (cSymbol.isNotBlank()) prefs[Keys.CURRENCY_SYMBOL] = cSymbol.trim()
                     if (lang == "BN" || lang == "EN") prefs[Keys.LANGUAGE] = lang
-                    if (importedCats.size >= 2) {
-                        prefs[Keys.CUSTOM_CATEGORIES] = importedCats.joinToString("|")
+                    if (catsArray != null) {
+                        prefs[Keys.CUSTOM_CATEGORIES] = if (importedCats.isEmpty()) "__EMPTY__" else importedCats.joinToString("|")
                     }
                     prefs[Keys.IS_SETUP_COMPLETED] = true
                     prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false

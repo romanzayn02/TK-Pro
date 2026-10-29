@@ -31,6 +31,7 @@ data class AppSettings(
     val autoSyncGoogleDocs: Boolean = true,
     val lastSyncedAtMillis: Long = 0L,
     val lastSheetSyncedAtMillis: Long = 0L,
+    val lastSyncedDocRevisionId: String = "",
     val hasPendingCloudSync: Boolean = false,
     val lastSyncError: String = ""
 ) {
@@ -77,6 +78,7 @@ class LedgerRepository(
         val AUTO_SYNC_GOOGLE_DOCS = booleanPreferencesKey("auto_sync_google_docs")
         val LAST_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_synced_at_millis")
         val LAST_SHEET_SYNCED_AT_MILLIS = androidx.datastore.preferences.core.longPreferencesKey("last_sheet_synced_at_millis")
+        val LAST_SYNCED_DOC_REVISION_ID = stringPreferencesKey("last_synced_doc_revision_id")
         val HAS_PENDING_CLOUD_SYNC = booleanPreferencesKey("has_pending_cloud_sync")
         val LAST_SYNC_ERROR = stringPreferencesKey("last_sync_error")
     }
@@ -109,6 +111,7 @@ class LedgerRepository(
             autoSyncGoogleDocs = prefs[Keys.AUTO_SYNC_GOOGLE_DOCS] ?: true,
             lastSyncedAtMillis = prefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
             lastSheetSyncedAtMillis = prefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L,
+            lastSyncedDocRevisionId = prefs[Keys.LAST_SYNCED_DOC_REVISION_ID] ?: "",
             hasPendingCloudSync = prefs[Keys.HAS_PENDING_CLOUD_SYNC] ?: false,
             lastSyncError = prefs[Keys.LAST_SYNC_ERROR] ?: ""
         )
@@ -326,13 +329,20 @@ class LedgerRepository(
         }
     }
 
-    suspend fun updateGoogleDocsSyncInfo(docId: String, syncedAtMillis: Long = System.currentTimeMillis()) {
+    suspend fun updateGoogleDocsSyncInfo(
+        docId: String,
+        syncedAtMillis: Long = System.currentTimeMillis(),
+        revisionId: String = ""
+    ) {
         context.dataStore.edit { prefs ->
             prefs[Keys.SYNCED_GOOGLE_DOC_ID] = docId.trim()
             if (syncedAtMillis > 0L) {
                 prefs[Keys.LAST_SYNCED_AT_MILLIS] = syncedAtMillis
                 prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false
                 prefs[Keys.LAST_SYNC_ERROR] = ""
+            }
+            if (revisionId.isNotBlank()) {
+                prefs[Keys.LAST_SYNCED_DOC_REVISION_ID] = revisionId.trim()
             }
         }
     }
@@ -433,25 +443,24 @@ class LedgerRepository(
         return root.toString(2)
     }
 
-    suspend fun importBackupJson(jsonContent: String): Result<Pair<Int, Int>> {
+    suspend fun importBackupJson(
+        jsonContent: String,
+        excludedCustomerIds: Set<Long> = emptySet(),
+        excludedTxIds: Set<Long> = emptySet(),
+        preserveLocalNewerThanMillis: Long = 0L
+    ): Result<Pair<Int, Int>> {
         return try {
-            val cleanJson = run {
-                val startMarker = GoogleDocsSyncService.SYNC_START_MARKER
-                val endMarker = GoogleDocsSyncService.SYNC_END_MARKER
-                val sIdx = jsonContent.indexOf(startMarker)
-                val eIdx = jsonContent.indexOf(endMarker)
-                if (sIdx >= 0 && eIdx > sIdx) {
-                    jsonContent.substring(sIdx + startMarker.length, eIdx).trim()
-                } else {
-                    val firstBrace = jsonContent.indexOf('{')
-                    val lastBrace = jsonContent.lastIndexOf('}')
+            val cleanJson = GoogleDocsSyncService.extractSyncJsonFromText(jsonContent)
+                ?: run {
+                    val normalized = GoogleDocsSyncService.normalizeDocJsonText(jsonContent)
+                    val firstBrace = normalized.indexOf('{')
+                    val lastBrace = normalized.lastIndexOf('}')
                     if (firstBrace >= 0 && lastBrace > firstBrace) {
-                        jsonContent.substring(firstBrace, lastBrace + 1).trim()
+                        normalized.substring(firstBrace, lastBrace + 1).trim()
                     } else {
-                        jsonContent.trim()
+                        normalized.trim()
                     }
                 }
-            }
 
             val root = JSONObject(cleanJson)
             val customersJson = root.optJSONArray("customers") ?: JSONArray()
@@ -475,6 +484,9 @@ class LedgerRepository(
                 val rawId = obj.optLong("id", 0L)
                 val resolvedId = if (rawId > 0L) rawId else (maxCustomerId + 1L)
                 if (resolvedId > maxCustomerId) maxCustomerId = resolvedId
+                if (resolvedId in excludedCustomerIds) {
+                    continue
+                }
                 val cName = obj.optString("name", "Customer").trim().ifEmpty { "Customer" }
                 val cPhone = obj.optString("phone", "").trim()
                 val preservedPhoto = localPhotoById[resolvedId]
@@ -502,10 +514,14 @@ class LedgerRepository(
                 val rawTxId = obj.optLong("id", 0L)
                 val resolvedTxId = if (rawTxId > 0L) rawTxId else (maxTxId + 1L)
                 if (resolvedTxId > maxTxId) maxTxId = resolvedTxId
+                val custId = obj.getLong("customerId")
+                if (resolvedTxId in excludedTxIds || custId in excludedCustomerIds) {
+                    continue
+                }
                 transactions.add(
                     TransactionEntity(
                         id = resolvedTxId,
-                        customerId = obj.getLong("customerId"),
+                        customerId = custId,
                         type = obj.optString("type", "DEBIT").ifBlank { "DEBIT" },
                         amount = obj.optDouble("amount", 0.0),
                         category = obj.optString("category", "অন্যান্য").ifBlank { "অন্যান্য" },
@@ -555,53 +571,71 @@ class LedgerRepository(
             // Preserve any unsynced local offline customers & transactions safely without ID or FK conflicts
             val currentPrefs = context.dataStore.data.first()
             val lastSyncMillis = maxOf(
+                preserveLocalNewerThanMillis,
                 currentPrefs[Keys.LAST_SYNCED_AT_MILLIS] ?: 0L,
                 currentPrefs[Keys.LAST_SHEET_SYNCED_AT_MILLIS] ?: 0L
             )
-            if (lastSyncMillis > 0L) {
-                val localCustomers = existingLocalCustomers
-                val localTransactions = dao.getAllTransactionsSnapshot()
-                val cloudCustomerIds = customers.map { it.id }.toMutableSet()
-                val cloudCustomerIdentityMap = customers.associateBy {
-                    "${it.name.trim().lowercase()}_${it.phone.trim()}"
-                }.toMutableMap()
-                val localToMergedCustomerId = mutableMapOf<Long, Long>()
+            val localCustomers = existingLocalCustomers.filter { it.id !in excludedCustomerIds }
+            val localTransactions = dao.getAllTransactionsSnapshot().filter {
+                it.id !in excludedTxIds && it.customerId !in excludedCustomerIds
+            }
 
-                for (localCustomer in localCustomers) {
-                    val identityKey = "${localCustomer.name.trim().lowercase()}_${localCustomer.phone.trim()}"
-                    val existingCloud = cloudCustomerIdentityMap[identityKey]
-                    if (existingCloud != null) {
-                        localToMergedCustomerId[localCustomer.id] = existingCloud.id
-                    } else if (localCustomer.createdAt > lastSyncMillis) {
-                        val newId = if (localCustomer.id !in cloudCustomerIds) {
-                            localCustomer.id
-                        } else {
-                            ++maxCustomerId
+            val cloudCustomerIds = customers.map { it.id }.toMutableSet()
+            val cloudCustomerIdentityMap = customers.associateBy {
+                "${it.name.trim().lowercase()}_${it.phone.trim()}"
+            }.toMutableMap()
+            val localToMergedCustomerId = mutableMapOf<Long, Long>()
+
+            for (localCustomer in localCustomers) {
+                val identityKey = "${localCustomer.name.trim().lowercase()}_${localCustomer.phone.trim()}"
+                val existingCloud = cloudCustomerIdentityMap[identityKey]
+                if (existingCloud != null) {
+                    localToMergedCustomerId[localCustomer.id] = existingCloud.id
+                    if (localCustomer.updatedAt > existingCloud.updatedAt) {
+                        val updatedCust = existingCloud.copy(
+                            name = localCustomer.name,
+                            phone = localCustomer.phone,
+                            partyType = localCustomer.partyType,
+                            address = localCustomer.address,
+                            avatarColorHex = localCustomer.avatarColorHex,
+                            photoUri = localCustomer.photoUri ?: existingCloud.photoUri,
+                            updatedAt = localCustomer.updatedAt
+                        )
+                        val idx = customers.indexOfFirst { it.id == existingCloud.id }
+                        if (idx >= 0) {
+                            customers[idx] = updatedCust
                         }
-                        val mergedCust = localCustomer.copy(id = newId)
-                        customers.add(mergedCust)
-                        cloudCustomerIds.add(newId)
-                        cloudCustomerIdentityMap[identityKey] = mergedCust
-                        localToMergedCustomerId[localCustomer.id] = newId
+                        cloudCustomerIdentityMap[identityKey] = updatedCust
                     }
+                } else if (lastSyncMillis == 0L || localCustomer.updatedAt > lastSyncMillis || localCustomer.createdAt > lastSyncMillis) {
+                    val newId = if (localCustomer.id !in cloudCustomerIds) {
+                        localCustomer.id
+                    } else {
+                        ++maxCustomerId
+                    }
+                    val mergedCust = localCustomer.copy(id = newId)
+                    customers.add(mergedCust)
+                    cloudCustomerIds.add(newId)
+                    cloudCustomerIdentityMap[identityKey] = mergedCust
+                    localToMergedCustomerId[localCustomer.id] = newId
                 }
+            }
 
-                val cloudTxKeys = transactions.map {
-                    "${it.customerId}_${it.type}_${it.amount}_${it.timestamp}_${it.note}"
-                }.toMutableSet()
-                val cloudTxIds = transactions.map { it.id }.toMutableSet()
+            val cloudTxKeys = transactions.map {
+                "${it.customerId}_${it.type}_${it.amount}_${it.timestamp}_${it.note}"
+            }.toMutableSet()
+            val cloudTxIds = transactions.map { it.id }.toMutableSet()
 
-                for (localTx in localTransactions) {
-                    val targetCustomerId = localToMergedCustomerId[localTx.customerId]
-                        ?: localTx.customerId.takeIf { it in cloudCustomerIds }
-                        ?: continue
-                    val key = "${targetCustomerId}_${localTx.type}_${localTx.amount}_${localTx.timestamp}_${localTx.note}"
-                    if (key !in cloudTxKeys && localTx.timestamp > lastSyncMillis) {
-                        val ensuredId = if (localTx.id !in cloudTxIds) localTx.id else ++maxTxId
-                        transactions.add(localTx.copy(id = ensuredId, customerId = targetCustomerId))
-                        cloudTxIds.add(ensuredId)
-                        cloudTxKeys.add(key)
-                    }
+            for (localTx in localTransactions) {
+                val targetCustomerId = localToMergedCustomerId[localTx.customerId]
+                    ?: localTx.customerId.takeIf { it in cloudCustomerIds }
+                    ?: continue
+                val key = "${targetCustomerId}_${localTx.type}_${localTx.amount}_${localTx.timestamp}_${localTx.note}"
+                if (key !in cloudTxKeys && (lastSyncMillis == 0L || localTx.timestamp > lastSyncMillis)) {
+                    val ensuredId = if (localTx.id !in cloudTxIds) localTx.id else ++maxTxId
+                    transactions.add(localTx.copy(id = ensuredId, customerId = targetCustomerId))
+                    cloudTxIds.add(ensuredId)
+                    cloudTxKeys.add(key)
                 }
             }
 

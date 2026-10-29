@@ -46,7 +46,15 @@ data class GoogleDocsSyncResult(
     val documentUrl: String,
     val syncedAtMillis: Long,
     val customerCount: Int,
-    val transactionCount: Int
+    val transactionCount: Int,
+    val revisionId: String = ""
+)
+
+data class GoogleDocMetadata(
+    val documentId: String,
+    val title: String,
+    val revisionId: String,
+    val modifiedTimeMillis: Long? = null
 )
 
 data class DiscoveredCloudBackup(
@@ -67,8 +75,10 @@ object GoogleDocsSyncService {
     private const val SCOPE_DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
     private const val OAUTH_SCOPE_STRING = "oauth2:$SCOPE_DOCS $SCOPE_SPREADSHEETS $SCOPE_DRIVE_FILE"
 
-    const val SYNC_START_MARKER = "===TALLYKHATA_SYNC_JSON_START==="
-    const val SYNC_END_MARKER = "===TALLYKHATA_SYNC_JSON_END==="
+    const val SYNC_START_MARKER = "===TKPRO_SYNC_JSON_START==="
+    const val SYNC_END_MARKER = "===TKPRO_SYNC_JSON_END==="
+    const val LEGACY_SYNC_START_MARKER = "===TALLYKHATA_SYNC_JSON_START==="
+    const val LEGACY_SYNC_END_MARKER = "===TALLYKHATA_SYNC_JSON_END==="
     const val SHEET_SYNC_ROW_MARKER = "===TALLYKHATA_SHEET_SYNC_JSON==="
 
     private const val AUTH_PREFS_NAME = "tkpro_google_auth_prefs"
@@ -738,6 +748,8 @@ object GoogleDocsSyncService {
                 }
             }
 
+            val metaAfter = getDocMetadata(accessToken, targetDocId).getOrNull()
+            val newRevisionId = metaAfter?.revisionId.orEmpty()
             val now = System.currentTimeMillis()
             Result.success(
                 GoogleDocsSyncResult(
@@ -745,9 +757,99 @@ object GoogleDocsSyncService {
                     documentUrl = "https://docs.google.com/document/d/$targetDocId/edit",
                     syncedAtMillis = now,
                     customerCount = customers.size,
-                    transactionCount = transactions.size
+                    transactionCount = transactions.size,
+                    revisionId = newRevisionId
                 )
             )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun normalizeDocJsonText(rawText: String): String {
+        return rawText
+            .replace('\u201c', '"')
+            .replace('\u201d', '"')
+            .replace('\u2018', '\'')
+            .replace('\u2019', '\'')
+            .replace("“", "\"")
+            .replace("”", "\"")
+            .replace("‘", "'")
+            .replace("’", "'")
+            .replace("\\u200B", "")
+            .replace("\\u200b", "")
+            .replace("\\u200C", "")
+            .replace("\\u200c", "")
+            .replace("\\u200D", "")
+            .replace("\\u200d", "")
+            .replace("\\uFEFF", "")
+            .replace("\\ufeff", "")
+            .filter { it != '\u200B' && it != '\u200C' && it != '\u200D' && it != '\uFEFF' }
+    }
+
+    fun extractSyncJsonFromText(rawText: String): String? {
+        val normalized = normalizeDocJsonText(rawText)
+        val s1 = normalized.indexOf(SYNC_START_MARKER)
+        val e1 = normalized.indexOf(SYNC_END_MARKER)
+        if (s1 >= 0 && e1 > s1) {
+            return normalized.substring(s1 + SYNC_START_MARKER.length, e1).trim()
+        }
+        val s2 = normalized.indexOf(LEGACY_SYNC_START_MARKER)
+        val e2 = normalized.indexOf(LEGACY_SYNC_END_MARKER)
+        if (s2 >= 0 && e2 > s2) {
+            return normalized.substring(s2 + LEGACY_SYNC_START_MARKER.length, e2).trim()
+        }
+        val firstBrace = normalized.indexOf('{')
+        val lastBrace = normalized.lastIndexOf('}')
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            val candidate = normalized.substring(firstBrace, lastBrace + 1).trim()
+            if (candidate.contains("customers") || candidate.contains("transactions") || candidate.contains("TallyKhata Pro") || candidate.contains("TK Pro")) {
+                return candidate
+            }
+        }
+        return null
+    }
+
+    /**
+     * Fetches lightweight metadata from Google Docs API (and Drive API modifiedTime if available)
+     * using minimal bandwidth (<300 bytes).
+     */
+    suspend fun getDocMetadata(
+        accessToken: String,
+        documentId: String
+    ): Result<GoogleDocMetadata> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = extractDocIdFromInput(documentId)
+            if (cleanId.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Invalid Google Doc ID"))
+
+            val url = "https://docs.googleapis.com/v1/documents/$cleanId?fields=documentId,title,revisionId"
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $accessToken")
+                .get()
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string().orEmpty()
+                    return@withContext Result.failure(IllegalStateException("Docs metadata failed (${resp.code}): $err"))
+                }
+                val bodyStr = resp.body?.string().orEmpty()
+                val json = JSONObject(bodyStr)
+                val docId = json.optString("documentId", cleanId)
+                val title = json.optString("title", "")
+                val revId = json.optString("revisionId", "")
+                val modTime = getFileModifiedTimeMillis(accessToken, cleanId)
+
+                Result.success(
+                    GoogleDocMetadata(
+                        documentId = docId,
+                        title = title,
+                        revisionId = revId,
+                        modifiedTimeMillis = modTime
+                    )
+                )
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -784,17 +886,12 @@ object GoogleDocsSyncService {
                 val bodyStr = resp.body?.string().orEmpty()
                 val docJson = JSONObject(bodyStr)
                 val fullText = extractPlainTextFromGoogleDoc(docJson)
+                val payload = extractSyncJsonFromText(fullText)
 
-                val startIdx = fullText.indexOf(SYNC_START_MARKER)
-                val endIdx = fullText.indexOf(SYNC_END_MARKER)
-
-                if (startIdx >= 0 && endIdx > startIdx) {
-                    val jsonPayload = fullText
-                        .substring(startIdx + SYNC_START_MARKER.length, endIdx)
-                        .trim()
-                    return@withContext Result.success(jsonPayload)
+                if (!payload.isNullOrBlank()) {
+                    Result.success(payload)
                 } else {
-                    return@withContext Result.failure(
+                    Result.failure(
                         IllegalStateException("No TK Pro sync data found in this Google Doc.")
                     )
                 }

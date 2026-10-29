@@ -108,6 +108,30 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     private var isAppInForeground: Boolean = true
     private var cloudPollingJob: Job? = null
+    private var autoPushJob: Job? = null
+    private var lastKnownRemoteDocHash: String = ""
+    private var lastKnownRemoteSheetHash: String = ""
+    private var lastPushedPayloadHash: String = ""
+
+    private var isMutatingOrPushing: Boolean = false
+    private var lastLocalMutationAtMillis: Long = 0L
+    val pendingDeletedCustomerIds: MutableSet<Long> = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+    val pendingDeletedTxIds: MutableSet<Long> = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+
+    private fun recordLocalMutation() {
+        isMutatingOrPushing = true
+        lastLocalMutationAtMillis = System.currentTimeMillis()
+    }
+
+    private fun computeMd5(input: String): String {
+        return try {
+            val md = java.security.MessageDigest.getInstance("MD5")
+            val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+            digest.fold(StringBuilder()) { sb, b -> sb.append(String.format("%02x", b)) }.toString()
+        } catch (_: Exception) {
+            input.hashCode().toString()
+        }
+    }
 
     fun requestCloudRestoreFromWelcome() {
         _pendingWelcomeCloudRestore.value = true
@@ -130,7 +154,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         cloudPollingJob?.cancel()
         cloudPollingJob = viewModelScope.launch {
             while (isActive) {
-                delay(5000L)
+                delay(12000L)
                 if (isAppInForeground && !_isSyncingGoogleDocs.value) {
                     checkForCloudChangesAndMerge()
                 }
@@ -147,8 +171,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 val hasCloudTarget = latestSettings.syncedGoogleDocId.isNotBlank() ||
                     latestSettings.syncedGoogleSheetId.isNotBlank()
                 if (hasCloudTarget) {
-                    if (latestSettings.hasPendingCloudSync || _isSyncFailedOfflineMode.value) {
+                    if (latestSettings.hasPendingCloudSync) {
                         triggerAutoSyncGoogleDocsIfConfigured(
+                            delayMillis = 0L,
                             notifyOnOfflineRecovery = true,
                             forceEvenIfAutoSyncOff = true
                         )
@@ -170,8 +195,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     val hasCloudTarget = latestSettings.syncedGoogleDocId.isNotBlank() ||
                         latestSettings.syncedGoogleSheetId.isNotBlank()
                     if (hasCloudTarget) {
-                        if (latestSettings.hasPendingCloudSync || _isSyncFailedOfflineMode.value) {
+                        if (latestSettings.hasPendingCloudSync) {
                             triggerAutoSyncGoogleDocsIfConfigured(
+                                delayMillis = 0L,
                                 notifyOnOfflineRecovery = true,
                                 forceEvenIfAutoSyncOff = true
                             )
@@ -215,6 +241,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 if (initialSettings.hasPendingCloudSync) {
                     if (checkIsOnline()) {
                         triggerAutoSyncGoogleDocsIfConfigured(
+                            delayMillis = 0L,
                             notifyOnOfflineRecovery = true,
                             forceEvenIfAutoSyncOff = true
                         )
@@ -422,6 +449,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         onCreated: (Long) -> Unit = {}
     ) {
         if (name.isBlank()) return
+        recordLocalMutation()
         val palette = listOf(
             0xFF0284C7,
             0xFFE11D48,
@@ -475,6 +503,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateCustomerPhoto(context: Context, customerId: Long, sourceUri: Uri?) {
+        recordLocalMutation()
         viewModelScope.launch {
             val savedPath = if (sourceUri != null) {
                 copyAvatarToInternalStorage(context, sourceUri, "customer_$customerId")
@@ -514,6 +543,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteCustomer(customerId: Long) {
+        recordLocalMutation()
+        pendingDeletedCustomerIds.add(customerId)
         viewModelScope.launch {
             repository.deleteCustomer(customerId)
             if (_selectedCustomerId.value == customerId) {
@@ -535,6 +566,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         timestamp: Long = System.currentTimeMillis()
     ) {
         if (amount <= 0.0) return
+        recordLocalMutation()
         viewModelScope.launch {
             repository.addTransaction(
                 customerId = customerId,
@@ -564,6 +596,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         timestamp: Long
     ) {
         if (amount <= 0.0) return
+        recordLocalMutation()
         viewModelScope.launch {
             repository.updateTransaction(
                 transactionId = transactionId,
@@ -600,6 +633,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteTransaction(transactionId: Long) {
+        recordLocalMutation()
+        pendingDeletedTxIds.add(transactionId)
         viewModelScope.launch {
             repository.deleteTransaction(transactionId)
             _statusBannerMessage.value = "লেনদেনটি মুছে ফেলা হয়েছে"
@@ -633,6 +668,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         currencySymbol: String,
         accountType: String? = null
     ) {
+        recordLocalMutation()
         viewModelScope.launch {
             repository.updateBusinessSettings(businessName, ownerPhone, currencySymbol, accountType)
             val isBn = uiState.value.settings.language != "EN"
@@ -917,7 +953,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     preferredSheetId = currentSettings.syncedGoogleSheetId
                 )
                 discoveredRes.onSuccess { backup ->
-                    val importRes = repository.importBackupJson(backup.jsonPayload)
+                    val importRes = repository.importBackupJson(
+                        jsonContent = backup.jsonPayload,
+                        excludedCustomerIds = pendingDeletedCustomerIds.toSet(),
+                        excludedTxIds = pendingDeletedTxIds.toSet(),
+                        preserveLocalNewerThanMillis = currentSettings.lastSyncedAtMillis
+                    )
                     importRes.onSuccess { (cCount, tCount) ->
                         _isSyncFailedOfflineMode.value = false
                         if (backup.isSpreadsheet) {
@@ -934,10 +975,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                                 )
                             }
                         } else {
-                            repository.updateGoogleDocsSyncInfo(backup.id, System.currentTimeMillis())
+                            val meta = GoogleDocsSyncService.getDocMetadata(accessToken, backup.id).getOrNull()
+                            val revId = meta?.revisionId.orEmpty()
+                            val effectiveTime = meta?.modifiedTimeMillis ?: System.currentTimeMillis()
+                            repository.updateGoogleDocsSyncInfo(backup.id, effectiveTime, revId)
                             if (hadPendingOffline) {
                                 val mergedSettings = repository.settingsFlow.first()
-                                GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                                val pushRes = GoogleDocsSyncService.syncLedgerToGoogleDoc(
                                     accessToken = accessToken,
                                     existingDocId = backup.id,
                                     settings = mergedSettings,
@@ -945,6 +989,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                                     transactions = repository.getAllTransactionsSnapshot(),
                                     rawBackupJson = repository.exportBackupJson(mergedSettings)
                                 )
+                                pushRes.onSuccess { pRes ->
+                                    repository.updateGoogleDocsSyncInfo(pRes.documentId, pRes.syncedAtMillis, pRes.revisionId)
+                                    pendingDeletedCustomerIds.clear()
+                                    pendingDeletedTxIds.clear()
+                                }
                             }
                         }
                         _isSyncingGoogleDocs.value = false
@@ -993,8 +1042,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     _isSyncFailedOfflineMode.value = false
                     repository.updateGoogleDocsSyncInfo(
                         docId = syncRes.documentId,
-                        syncedAtMillis = syncRes.syncedAtMillis
+                        syncedAtMillis = syncRes.syncedAtMillis,
+                        revisionId = syncRes.revisionId
                     )
+                    pendingDeletedCustomerIds.clear()
+                    pendingDeletedTxIds.clear()
                     _statusBannerMessage.value = if (isBn) {
                         "✅ Google Docs-এ লাইভ সিঙ্ক সম্পন্ন হয়েছে!"
                     } else {
@@ -1037,17 +1089,26 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     documentId = resolvedDocId
                 )
                 pullRes.onSuccess { jsonPayload ->
-                    val importRes = repository.importBackupJson(jsonPayload)
+                    val importRes = repository.importBackupJson(
+                        jsonContent = jsonPayload,
+                        excludedCustomerIds = pendingDeletedCustomerIds.toSet(),
+                        excludedTxIds = pendingDeletedTxIds.toSet(),
+                        preserveLocalNewerThanMillis = currentSettings.lastSyncedAtMillis
+                    )
                     importRes.onSuccess { (cCount, tCount) ->
                         _isSyncFailedOfflineMode.value = false
+                        val meta = GoogleDocsSyncService.getDocMetadata(accessToken, resolvedDocId).getOrNull()
+                        val revId = meta?.revisionId.orEmpty()
+                        val effectiveTime = meta?.modifiedTimeMillis ?: System.currentTimeMillis()
                         repository.updateGoogleDocsSyncInfo(
                             docId = resolvedDocId,
-                            syncedAtMillis = System.currentTimeMillis()
+                            syncedAtMillis = effectiveTime,
+                            revisionId = revId
                         )
                         // If there were offline transactions merged during restore, push the merged state back
                         if (hadPendingOffline) {
                             val mergedSettings = repository.settingsFlow.first()
-                            GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                            val pushRes = GoogleDocsSyncService.syncLedgerToGoogleDoc(
                                 accessToken = accessToken,
                                 existingDocId = resolvedDocId,
                                 settings = mergedSettings,
@@ -1055,6 +1116,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                                 transactions = repository.getAllTransactionsSnapshot(),
                                 rawBackupJson = repository.exportBackupJson(mergedSettings)
                             )
+                            pushRes.onSuccess { pRes ->
+                                repository.updateGoogleDocsSyncInfo(pRes.documentId, pRes.syncedAtMillis, pRes.revisionId)
+                                pendingDeletedCustomerIds.clear()
+                                pendingDeletedTxIds.clear()
+                            }
                         }
                         _isSyncingGoogleDocs.value = false
                         scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
@@ -1198,135 +1264,188 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun retryOfflineCloudSync() {
         triggerAutoSyncGoogleDocsIfConfigured(
+            delayMillis = 0L,
             notifyOnOfflineRecovery = true,
             forceEvenIfAutoSyncOff = true
         )
     }
 
     private fun triggerAutoSyncGoogleDocsIfConfigured(
+        delayMillis: Long = 1200L,
         notifyOnOfflineRecovery: Boolean = false,
         forceEvenIfAutoSyncOff: Boolean = false
     ) {
+        autoPushJob?.cancel()
+        autoPushJob = viewModelScope.launch {
+            if (delayMillis > 0L) {
+                delay(delayMillis)
+            }
+            performAutoPushInternal(notifyOnOfflineRecovery, forceEvenIfAutoSyncOff)
+        }
+    }
+
+    private suspend fun performAutoPushInternal(
+        notifyOnOfflineRecovery: Boolean,
+        forceEvenIfAutoSyncOff: Boolean
+    ) {
         val appContext = getApplication<Application>()
-        viewModelScope.launch {
-            val currentSettings = repository.settingsFlow.first { it.isSettingsLoaded }
-            val hasDoc = currentSettings.syncedGoogleDocId.isNotBlank()
-            val hasSheet = currentSettings.syncedGoogleSheetId.isNotBlank()
-            if ((!currentSettings.autoSyncGoogleDocs && !forceEvenIfAutoSyncOff) || (!hasDoc && !hasSheet)) {
-                return@launch
-            }
+        val currentSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+        val hasDoc = currentSettings.syncedGoogleDocId.isNotBlank()
+        val hasSheet = currentSettings.syncedGoogleSheetId.isNotBlank()
+        if ((!currentSettings.autoSyncGoogleDocs && !forceEvenIfAutoSyncOff) || (!hasDoc && !hasSheet)) {
+            return
+        }
 
-            val isBn = currentSettings.language != "EN"
-            if (!checkIsOnline()) {
-                _isNetworkOnline.value = false
-                _isSyncFailedOfflineMode.value = true
-                repository.setPendingCloudSync(
-                    pending = true,
-                    errorMessage = if (isBn) "ইন্টারনেট সংযোগ নেই (অফলাইন মোড)" else "No internet connection (Offline Mode)"
-                )
-                return@launch
-            }
+        val isBn = currentSettings.language != "EN"
+        if (!checkIsOnline()) {
+            _isNetworkOnline.value = false
+            _isSyncFailedOfflineMode.value = true
+            repository.setPendingCloudSync(
+                pending = true,
+                errorMessage = if (isBn) "ইন্টারনেট সংযোগ নেই (অফলাইন মোড)" else "No internet connection (Offline Mode)"
+            )
+            return
+        }
 
-            _isSyncingGoogleDocs.value = true
+        if (_isSyncingGoogleDocs.value) {
+            triggerAutoSyncGoogleDocsIfConfigured(delayMillis = 2000L, notifyOnOfflineRecovery, forceEvenIfAutoSyncOff)
+            return
+        }
+
+        isMutatingOrPushing = true
+        _isSyncingGoogleDocs.value = true
+
+        try {
             val authOutcome = GoogleDocsSyncService.authorizeGoogleDocs(appContext)
-            if (authOutcome is GoogleDocsAuthOutcome.Authorized) {
-                val fetchedGooglePhoto = GoogleDocsSyncService.fetchAndSaveGoogleProfilePhoto(appContext, authOutcome.accessToken)
-                if (!fetchedGooglePhoto.isNullOrBlank()) {
-                    repository.updateGooglePhotoUrl(fetchedGooglePhoto)
-                }
-
-                // Pre-push check: If web app made changes in the meantime, pull & merge them first into Room
-                // so local push doesn't overwrite web edits and instead combines both.
-                performCloudMergeIfNewer(
-                    accessToken = authOutcome.accessToken,
-                    settings = currentSettings,
-                    hasDoc = hasDoc,
-                    hasSheet = hasSheet,
-                    notifyOnMerge = false
-                )
-
-                val refreshedSettings = repository.settingsFlow.first { it.isSettingsLoaded }
-                val customers = repository.getAllCustomersSnapshot()
-                val transactions = repository.getAllTransactionsSnapshot()
-                val rawJson = repository.exportBackupJson(refreshedSettings)
-                var allSucceeded = true
-                var failureReason = ""
-
-                if (hasDoc) {
-                    val res = GoogleDocsSyncService.syncLedgerToGoogleDoc(
-                        accessToken = authOutcome.accessToken,
-                        existingDocId = refreshedSettings.syncedGoogleDocId,
-                        settings = refreshedSettings,
-                        customers = customers,
-                        transactions = transactions,
-                        rawBackupJson = rawJson
-                    )
-                    res.onSuccess { syncRes ->
-                        repository.updateGoogleDocsSyncInfo(
-                            docId = syncRes.documentId,
-                            syncedAtMillis = syncRes.syncedAtMillis
-                        )
-                    }.onFailure { err ->
-                        allSucceeded = false
-                        failureReason = err.localizedMessage ?: "Google Docs sync failed"
-                    }
-                }
-                if (hasSheet) {
-                    val sheetRes = GoogleDocsSyncService.syncLedgerToGoogleSheet(
-                        accessToken = authOutcome.accessToken,
-                        existingSheetId = refreshedSettings.syncedGoogleSheetId,
-                        settings = refreshedSettings,
-                        customers = customers,
-                        transactions = transactions,
-                        rawBackupJson = rawJson
-                    )
-                    sheetRes.onSuccess { syncRes ->
-                        repository.updateGoogleSheetsSyncInfo(
-                            sheetId = syncRes.documentId,
-                            syncedAtMillis = syncRes.syncedAtMillis
-                        )
-                    }.onFailure { err ->
-                        allSucceeded = false
-                        failureReason = err.localizedMessage ?: "Google Sheets sync failed"
-                    }
-                }
-
-                _isSyncingGoogleDocs.value = false
-                if (allSucceeded) {
-                    _isSyncFailedOfflineMode.value = false
-                    repository.setPendingCloudSync(false, "")
-                    if (notifyOnOfflineRecovery) {
-                        _statusBannerMessage.value = if (isBn) {
-                            "✅ অফলাইন লেনদেনগুলো Google ক্লাউডে সিঙ্ক হয়েছে!"
-                        } else {
-                            "✅ Offline transactions synced to Google Cloud!"
-                        }
-                    }
-                } else {
-                    _isSyncFailedOfflineMode.value = true
-                    repository.setPendingCloudSync(true, failureReason)
-                    if (notifyOnOfflineRecovery) {
-                        _statusBannerMessage.value = if (isBn) {
-                            "📴 অফলাইন মোড: সিঙ্ক ব্যর্থ ($failureReason)"
-                        } else {
-                            "📴 Offline Mode: Sync failed ($failureReason)"
-                        }
-                    }
-                }
-            } else {
-                _isSyncingGoogleDocs.value = false
+            if (authOutcome !is GoogleDocsAuthOutcome.Authorized) {
                 _isSyncFailedOfflineMode.value = true
                 val errMsg = (authOutcome as? GoogleDocsAuthOutcome.Error)?.message
                     ?: if (isBn) "ক্লাউড সিঙ্ক অনুমোদন প্রয়োজন" else "Cloud sync authorization required"
                 repository.setPendingCloudSync(true, errMsg)
+                return
             }
+
+            val token = authOutcome.accessToken
+            val fetchedGooglePhoto = GoogleDocsSyncService.fetchAndSaveGoogleProfilePhoto(appContext, token)
+            if (!fetchedGooglePhoto.isNullOrBlank()) {
+                repository.updateGooglePhotoUrl(fetchedGooglePhoto)
+            }
+
+            // 1. Pre-Push Remote Check + Smart Merge before pushing:
+            if (hasDoc) {
+                val docId = currentSettings.syncedGoogleDocId
+                val metaRes = GoogleDocsSyncService.getDocMetadata(token, docId)
+                if (metaRes.isSuccess) {
+                    val meta = metaRes.getOrThrow()
+                    val lastRevId = currentSettings.lastSyncedDocRevisionId
+                    val lastSyncedAt = currentSettings.lastSyncedAtMillis
+                    val remoteModTime = meta.modifiedTimeMillis
+
+                    val isRevisionChanged = meta.revisionId.isNotBlank() && lastRevId.isNotBlank() && meta.revisionId != lastRevId
+                    val isTimeNewer = remoteModTime != null && remoteModTime > (lastSyncedAt + 2000L)
+
+                    if (isRevisionChanged || isTimeNewer) {
+                        val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleDoc(token, docId)
+                        if (pullRes.isSuccess) {
+                            val cloudJson = pullRes.getOrThrow()
+                            repository.importBackupJson(
+                                jsonContent = cloudJson,
+                                excludedCustomerIds = pendingDeletedCustomerIds.toSet(),
+                                excludedTxIds = pendingDeletedTxIds.toSet(),
+                                preserveLocalNewerThanMillis = lastSyncedAt
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Prepare post-merge snapshot
+            val refreshedSettings = repository.settingsFlow.first { it.isSettingsLoaded }
+            val rawJson = repository.exportBackupJson(refreshedSettings)
+            val postMergeHash = computeMd5(rawJson)
+
+            val customers = repository.getAllCustomersSnapshot()
+            val transactions = repository.getAllTransactionsSnapshot()
+            var allSucceeded = true
+            var failureReason = ""
+
+            if (hasDoc) {
+                val res = GoogleDocsSyncService.syncLedgerToGoogleDoc(
+                    accessToken = token,
+                    existingDocId = refreshedSettings.syncedGoogleDocId,
+                    settings = refreshedSettings,
+                    customers = customers,
+                    transactions = transactions,
+                    rawBackupJson = rawJson
+                )
+                res.onSuccess { syncRes ->
+                    repository.updateGoogleDocsSyncInfo(
+                        docId = syncRes.documentId,
+                        syncedAtMillis = syncRes.syncedAtMillis,
+                        revisionId = syncRes.revisionId
+                    )
+                    pendingDeletedCustomerIds.clear()
+                    pendingDeletedTxIds.clear()
+                }.onFailure { err ->
+                    allSucceeded = false
+                    failureReason = err.localizedMessage ?: "Google Docs sync failed"
+                }
+            }
+
+            if (hasSheet) {
+                val sheetRes = GoogleDocsSyncService.syncLedgerToGoogleSheet(
+                    accessToken = token,
+                    existingSheetId = refreshedSettings.syncedGoogleSheetId,
+                    settings = refreshedSettings,
+                    customers = customers,
+                    transactions = transactions,
+                    rawBackupJson = rawJson
+                )
+                sheetRes.onSuccess { syncRes ->
+                    repository.updateGoogleSheetsSyncInfo(
+                        sheetId = syncRes.documentId,
+                        syncedAtMillis = syncRes.syncedAtMillis
+                    )
+                }.onFailure { err ->
+                    allSucceeded = false
+                    failureReason = err.localizedMessage ?: "Google Sheets sync failed"
+                }
+            }
+
+            if (allSucceeded) {
+                lastPushedPayloadHash = postMergeHash
+                lastKnownRemoteDocHash = postMergeHash
+                lastKnownRemoteSheetHash = postMergeHash
+                _isSyncFailedOfflineMode.value = false
+                repository.setPendingCloudSync(false, "")
+                if (notifyOnOfflineRecovery) {
+                    _statusBannerMessage.value = if (isBn) {
+                        "✅ অফলাইন লেনদেনগুলো Google ক্লাউডে সিঙ্ক হয়েছে!"
+                    } else {
+                        "✅ Offline transactions synced to Google Cloud!"
+                    }
+                }
+            } else {
+                _isSyncFailedOfflineMode.value = true
+                repository.setPendingCloudSync(true, failureReason)
+                if (notifyOnOfflineRecovery) {
+                    _statusBannerMessage.value = if (isBn) {
+                        "📴 অফলাইন মোড: সিঙ্ক ব্যর্থ ($failureReason)"
+                    } else {
+                        "📴 Offline Mode: Sync failed ($failureReason)"
+                    }
+                }
+            }
+        } finally {
+            _isSyncingGoogleDocs.value = false
+            isMutatingOrPushing = false
         }
     }
 
     /**
      * Checks if Google Docs or Google Sheets has newer changes made outside this device (e.g. from web app)
-     * using lightweight Google Drive API file modifiedTime check (<100 bytes). If changes are detected,
-     * pulls and safely merges them into Room database without deleting unsynced local records.
+     * by fetching lightweight document metadata first (<300 bytes), avoiding 429 rate limits and battery drain.
+     * If changes are detected, pulls and safely merges them into Room database without deleting unsynced local records.
      */
     suspend fun checkForCloudChangesAndMerge(isManual: Boolean = false): Boolean {
         val appContext = getApplication<Application>()
@@ -1340,85 +1459,124 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             return false
         }
 
+        // Mutation lock check: skip poll if user is mutating or within 8 seconds grace period
+        val now = System.currentTimeMillis()
+        if (!isManual && (isMutatingOrPushing || (now - lastLocalMutationAtMillis < 8000L))) {
+            return false
+        }
+
+        // If user made changes offline that are pending sync, push them first with smart merge!
+        if (currentSettings.hasPendingCloudSync) {
+            performAutoPushInternal(notifyOnOfflineRecovery = false, forceEvenIfAutoSyncOff = true)
+            return false
+        }
+
         val authOutcome = GoogleDocsSyncService.authorizeGoogleDocs(appContext)
         if (authOutcome !is GoogleDocsAuthOutcome.Authorized) {
             return false
         }
 
+        val token = authOutcome.accessToken
         _isSyncingGoogleDocs.value = true
-        return try {
-            performCloudMergeIfNewer(
-                accessToken = authOutcome.accessToken,
-                settings = currentSettings,
-                hasDoc = hasDoc,
-                hasSheet = hasSheet,
-                notifyOnMerge = true
-            )
-        } finally {
-            _isSyncingGoogleDocs.value = false
-        }
-    }
-
-    private suspend fun performCloudMergeIfNewer(
-        accessToken: String,
-        settings: AppSettings,
-        hasDoc: Boolean,
-        hasSheet: Boolean,
-        notifyOnMerge: Boolean
-    ): Boolean {
         var mergedAny = false
         var totalMergedTransactions = 0
-        val isBn = settings.language != "EN"
+        val isBn = currentSettings.language != "EN"
 
-        if (hasDoc) {
-            val docId = settings.syncedGoogleDocId
-            val remoteDocModified = GoogleDocsSyncService.getFileModifiedTimeMillis(accessToken, docId)
-            // 1.5s tolerance avoids re-importing the push we just made ourselves
-            if (remoteDocModified != null && remoteDocModified > (settings.lastSyncedAtMillis + 1500L)) {
-                try {
-                    val pullResult = GoogleDocsSyncService.pullLedgerFromGoogleDoc(accessToken, docId)
-                    if (pullResult.isSuccess) {
-                        val rawJson = pullResult.getOrThrow()
-                        val importRes = repository.importBackupJson(rawJson)
+        try {
+            if (hasDoc) {
+                val docId = currentSettings.syncedGoogleDocId
+                // Lightweight metadata check first:
+                val metaRes = GoogleDocsSyncService.getDocMetadata(token, docId)
+                if (metaRes.isSuccess) {
+                    val meta = metaRes.getOrThrow()
+                    val lastRevId = currentSettings.lastSyncedDocRevisionId
+                    val lastSyncedAt = currentSettings.lastSyncedAtMillis
+                    val remoteModTime = meta.modifiedTimeMillis
+
+                    val isRevisionChanged = meta.revisionId.isNotBlank() && (lastRevId.isBlank() || meta.revisionId != lastRevId)
+                    val isTimeNewer = remoteModTime != null && remoteModTime > (lastSyncedAt + 2000L)
+
+                    if (isManual || isRevisionChanged || isTimeNewer) {
+                        // Check mutation lock before starting network pull:
+                        if (!isManual && (isMutatingOrPushing || (System.currentTimeMillis() - lastLocalMutationAtMillis < 8000L))) {
+                            return false
+                        }
+
+                        val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleDoc(token, docId)
+                        if (pullRes.isSuccess) {
+                            // Check mutation lock right after downloading, before writing to Room/SQLite!
+                            if (!isManual && (isMutatingOrPushing || (System.currentTimeMillis() - lastLocalMutationAtMillis < 8000L))) {
+                                return false
+                            }
+
+                            val rawJson = pullRes.getOrThrow()
+                            val remoteHash = computeMd5(rawJson)
+                            if (remoteHash.isNotBlank() && (isManual || remoteHash != lastPushedPayloadHash)) {
+                                val importRes = repository.importBackupJson(
+                                    jsonContent = rawJson,
+                                    excludedCustomerIds = pendingDeletedCustomerIds.toSet(),
+                                    excludedTxIds = pendingDeletedTxIds.toSet(),
+                                    preserveLocalNewerThanMillis = lastSyncedAt
+                                )
+                                if (importRes.isSuccess) {
+                                    val (_, txCount) = importRes.getOrThrow()
+                                    totalMergedTransactions += txCount
+                                    lastKnownRemoteDocHash = remoteHash
+                                    val effectiveTimestamp = remoteModTime ?: System.currentTimeMillis()
+                                    repository.updateGoogleDocsSyncInfo(
+                                        docId = docId,
+                                        syncedAtMillis = effectiveTimestamp,
+                                        revisionId = meta.revisionId
+                                    )
+                                    mergedAny = true
+                                }
+                            } else if (remoteHash.isNotBlank()) {
+                                lastKnownRemoteDocHash = remoteHash
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (hasSheet) {
+                val sheetId = currentSettings.syncedGoogleSheetId
+                val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleSheet(token, sheetId)
+                if (pullRes.isSuccess) {
+                    if (!isManual && (isMutatingOrPushing || (System.currentTimeMillis() - lastLocalMutationAtMillis < 8000L))) {
+                        return false
+                    }
+                    val rawJson = pullRes.getOrThrow()
+                    val remoteHash = computeMd5(rawJson)
+                    if (remoteHash.isNotBlank() && remoteHash != lastKnownRemoteSheetHash && remoteHash != lastPushedPayloadHash) {
+                        val importRes = repository.importBackupJson(
+                            jsonContent = rawJson,
+                            excludedCustomerIds = pendingDeletedCustomerIds.toSet(),
+                            excludedTxIds = pendingDeletedTxIds.toSet(),
+                            preserveLocalNewerThanMillis = currentSettings.lastSheetSyncedAtMillis
+                        )
                         if (importRes.isSuccess) {
                             val (_, txCount) = importRes.getOrThrow()
                             totalMergedTransactions += txCount
-                            repository.updateGoogleDocsSyncInfo(docId, remoteDocModified)
+                            lastKnownRemoteSheetHash = remoteHash
+                            repository.updateGoogleSheetsSyncInfo(sheetId, System.currentTimeMillis())
                             mergedAny = true
                         }
+                    } else if (remoteHash.isNotBlank()) {
+                        lastKnownRemoteSheetHash = remoteHash
                     }
-                } catch (_: Exception) {
                 }
             }
-        }
 
-        if (hasSheet) {
-            val sheetId = settings.syncedGoogleSheetId
-            val remoteSheetModified = GoogleDocsSyncService.getFileModifiedTimeMillis(accessToken, sheetId)
-            if (remoteSheetModified != null && remoteSheetModified > (settings.lastSheetSyncedAtMillis + 1500L)) {
-                try {
-                    val pullResult = GoogleDocsSyncService.pullLedgerFromGoogleSheet(accessToken, sheetId)
-                    if (pullResult.isSuccess) {
-                        val rawJson = pullResult.getOrThrow()
-                        val importRes = repository.importBackupJson(rawJson)
-                        if (importRes.isSuccess) {
-                            val (_, txCount) = importRes.getOrThrow()
-                            totalMergedTransactions += txCount
-                            repository.updateGoogleSheetsSyncInfo(sheetId, remoteSheetModified)
-                            mergedAny = true
-                        }
-                    }
-                } catch (_: Exception) {
+            if (mergedAny) {
+                _statusBannerMessage.value = if (isBn) {
+                    "🔄 ওয়েব অ্যাপের নতুন তথ্য সিঙ্ক হয়েছে ($totalMergedTransactions লেনদেন)!"
+                } else {
+                    "🔄 Synced updates from web app ($totalMergedTransactions records)!"
                 }
             }
-        }
-
-        if (mergedAny && notifyOnMerge) {
-            _statusBannerMessage.value = if (isBn) {
-                "🔄 ওয়েব অ্যাপের নতুন তথ্য সিঙ্ক হয়েছে ($totalMergedTransactions লেনদেন)!"
-            } else {
-                "🔄 Synced updates from web app ($totalMergedTransactions records)!"
-            }
+        } catch (_: Exception) {
+        } finally {
+            _isSyncingGoogleDocs.value = false
         }
 
         return mergedAny

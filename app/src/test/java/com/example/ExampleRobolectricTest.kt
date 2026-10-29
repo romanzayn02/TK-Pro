@@ -113,4 +113,79 @@ class ExampleRobolectricTest {
             org.junit.Assert.assertNotNull(activity)
         }
     }
+
+    @Test
+    fun `verify Google Docs sync JSON markers and unicode quote normalization`() {
+        val sampleDoc = """
+            Customer Khata Ledger
+            
+            ===TKPRO_SYNC_JSON_START===
+            {
+              “app”: “TallyKhata Pro”,
+              “version”: 1,
+              “exportedAt”: 1700000000000,
+              “customers”: [
+                {
+                  “id”: 101,
+                  “name”: “Rahim\u200B”,
+                  “phone”: “01700000000”
+                }
+              ],
+              “transactions”: []
+            }
+            ===TKPRO_SYNC_JSON_END===
+            
+            End of report.
+        """.trimIndent()
+
+        val extracted = com.example.data.GoogleDocsSyncService.extractSyncJsonFromText(sampleDoc)
+        org.junit.Assert.assertNotNull(extracted)
+        val json = org.json.JSONObject(extracted!!)
+        assertEquals("TallyKhata Pro", json.getString("app"))
+        assertEquals(1, json.getJSONArray("customers").length())
+        assertEquals(0, json.getJSONArray("transactions").length())
+        val customer = json.getJSONArray("customers").getJSONObject(0)
+        assertEquals(101L, customer.getLong("id"))
+        assertEquals("Rahim", customer.getString("name"))
+    }
+
+    @Test
+    fun `verify smart merge excludes deleted customer and transaction IDs`() = runBlocking {
+        val cloudJson = """
+            ===TKPRO_SYNC_JSON_START===
+            {
+              "app": "TallyKhata Pro",
+              "customers": [
+                {"id": 1, "name": "Active Customer", "phone": "01711111111"},
+                {"id": 2, "name": "Deleted Customer", "phone": "01722222222"}
+              ],
+              "transactions": [
+                {"id": 10, "customerId": 1, "type": "DEBIT", "amount": 100.0, "timestamp": 1000},
+                {"id": 20, "customerId": 1, "type": "CREDIT", "amount": 50.0, "timestamp": 1001}
+              ]
+            }
+            ===TKPRO_SYNC_JSON_END===
+        """.trimIndent()
+
+        // Exclude customer 2 (deleted locally) and transaction 20 (deleted locally)
+        val result = repository.importBackupJson(
+            jsonContent = cloudJson,
+            excludedCustomerIds = setOf(2L),
+            excludedTxIds = setOf(20L)
+        )
+        assertTrue(result.isSuccess)
+        val (cCount, txCount) = result.getOrThrow()
+        assertEquals(1, cCount)
+        assertEquals(1, txCount)
+
+        val customers = repository.getAllCustomersSnapshot()
+        assertEquals(1, customers.size)
+        assertEquals(1L, customers.first().id)
+        assertEquals("Active Customer", customers.first().name)
+
+        val transactions = repository.getAllTransactionsSnapshot()
+        assertEquals(1, transactions.size)
+        assertEquals(10L, transactions.first().id)
+    }
 }
+

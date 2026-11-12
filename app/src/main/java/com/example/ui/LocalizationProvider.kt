@@ -2,6 +2,7 @@ package com.example.ui
 
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
@@ -111,7 +112,7 @@ object LocalizationProvider {
                 customerNameLabel = if (isInd) "ব্যক্তি বা প্রতিষ্ঠানের নাম" else "কাস্টমার বা পার্টির নাম",
                 phoneNumberLabel = "মোবাইল নম্বর",
                 addressLabel = "ঠিকানা বা নোট (ঐচ্ছিক)",
-                partyTypeCustomer = if (isInd) "ব্যক্তি (Person)" else "কাস্টমার",
+                partyTypeCustomer = if (isInd) "ব্যক্তি" else "কাস্টমার",
                 partyTypeSupplier = if (isInd) "ব্যবসা / শপ" else "সাপ্লায়ার",
                 searchPlaceholder = "নাম বা মোবাইল নম্বর দিয়ে খুঁজুন...",
                 filterAll = if (isInd) "সব হিসাব" else "সব পার্টি",
@@ -131,12 +132,12 @@ object LocalizationProvider {
                 deleteButton = "মুছে ফেলুন",
                 callDirect = "কল করুন",
                 smsReminder = "তাগাদা মেসেজ",
-                smsTemplateSheetTitle = "বকেয়া তাগাদা মেসেজ (SMS Reminder)",
+                smsTemplateSheetTitle = "মেসেজ ও রিমাইন্ডার",
                 sendSmsAction = "মেসেজ অ্যাপে পাঠান",
                 copySmsAction = "টেক্সট কপি করুন",
                 settingsTitle = if (isInd) "প্রোফাইল ও অ্যাপ সেটিংস" else "ব্যবসা ও অ্যাপ সেটিংস",
                 businessBrandingTitle = if (isInd) "প্রোফাইল পরিচিতি ও কারেন্সি" else "ব্যবসার পরিচিতি ও কারেন্সি",
-                businessNameLabel = if (isInd) "আপনার নাম (Your Name)" else "ব্যবসা প্রতিষ্ঠানের নাম",
+                businessNameLabel = if (isInd) "আপনার নাম" else "ব্যবসা প্রতিষ্ঠানের নাম",
                 ownerPhoneLabel = if (isInd) "আপনার মোবাইল নম্বর" else "ব্যবসার মোবাইল নম্বর",
                 currencySymbolLabel = "মুদ্রার চিহ্ন (৳, Tk, $)",
                 saveBrandingButton = "তথ্য আপডেট করুন",
@@ -147,10 +148,10 @@ object LocalizationProvider {
                 backupSubtitle = "আপনার সব হিসাব ও লেনদেন নিরাপদে JSON ফাইলে এক্সপোর্ট বা ইমপোর্ট করুন।",
                 exportJsonButton = "JSON ব্যাকআপ এক্সপোর্ট করুন",
                 importJsonButton = "JSON ব্যাকআপ ইমপোর্ট করুন",
-                languageSectionTitle = "ভাষা পরিবর্তন (Language)",
-                glassThemeSectionTitle = "থিম মোড (Theme Mode)",
-                darkGlassModeLabel = "ডার্ক থিম (Dark Mode)",
-                lightGlassModeLabel = "লাইট থিম (Light Mode)",
+                languageSectionTitle = "অ্যাপের ভাষা",
+                glassThemeSectionTitle = "থিম মোড",
+                darkGlassModeLabel = "ডার্ক গ্লাস থিম",
+                lightGlassModeLabel = "লাইট গ্লাস থিম",
                 noCustomersEmptyTitle = if (isInd) "কোনো ব্যক্তি বা প্রতিষ্ঠান যুক্ত নেই" else "কোনো কাস্টমার পাওয়া যায়নি",
                 noCustomersEmptyDesc = if (isInd) {
                     "নতুন ব্যক্তি বা ব্যবসা প্রতিষ্ঠানের হিসাব যোগ করতে নিচের '+' বাটনে চাপুন অথবা ফোন কন্টাক্ট থেকে ইমপোর্ট করুন।"
@@ -176,16 +177,16 @@ object LocalizationProvider {
                 tabDashboard = "Ledger",
                 tabHistory = "History",
                 tabSettings = "Settings",
-                totalReceivable = "মোট পাবেন (Receivable)",
-                totalPayable = "মোট দেবেন (Payable)",
-                netBalance = "মোট ব্যালেন্স (Net Balance)",
-                receivableBadge = "Receivable (পাবেন)",
-                payableBadge = "Payable (দেবেন)",
+                totalReceivable = "Total Receivable",
+                totalPayable = "Total Payable",
+                netBalance = "Net Balance",
+                receivableBadge = "Receivable",
+                payableBadge = "Payable",
                 settledBadge = "Settled",
-                debitTitle = "টাকা পাব / দিয়েছি (Debit)",
-                debitShort = "Debit (পাব)",
-                creditTitle = "টাকা দেব / পেয়েছি (Credit)",
-                creditShort = "Credit (দেব)",
+                debitTitle = "You Gave (Debit)",
+                debitShort = "You Gave",
+                creditTitle = "You Got (Credit)",
+                creditShort = "You Got",
                 addCustomer = if (isInd) "Add Person / Business" else "Add Customer / Party",
                 importContact = "Pick from Contacts",
                 customerNameLabel = if (isInd) "Person or Business Name" else "Customer or Party Name",
@@ -195,8 +196,8 @@ object LocalizationProvider {
                 partyTypeSupplier = if (isInd) "Business / Shop" else "Supplier",
                 searchPlaceholder = "Search by name or phone...",
                 filterAll = if (isInd) "All Accounts" else "All Parties",
-                filterReceivable = "Receivable (পাবেন)",
-                filterPayable = "Payable (দেবেন)",
+                filterReceivable = "Receivable",
+                filterPayable = "Payable",
                 filterSupplier = if (isInd) "Businesses" else "Suppliers",
                 addEntryButton = "Add Ledger Entry",
                 amountLabel = "Amount",
@@ -210,16 +211,16 @@ object LocalizationProvider {
                 cancelButton = "Cancel",
                 deleteButton = "Delete",
                 callDirect = "Direct Call",
-                smsReminder = "SMS Reminder",
-                smsTemplateSheetTitle = "Overdue Balance SMS Reminder",
+                smsReminder = "Send Message",
+                smsTemplateSheetTitle = "Messages & Reminders",
                 sendSmsAction = "Open in SMS App",
                 copySmsAction = "Copy Message",
                 settingsTitle = if (isInd) "Profile & App Settings" else "Business & App Settings",
-                businessBrandingTitle = if (isInd) "Personal Profile & Currency" else "Business Branding & Currency",
+                businessBrandingTitle = if (isInd) "Personal Profile & Currency" else "Business Profile & Currency",
                 businessNameLabel = if (isInd) "Your Full Name" else "Business Name",
                 ownerPhoneLabel = if (isInd) "Your Phone Number" else "Business Phone Number",
                 currencySymbolLabel = "Currency Symbol (৳, Tk, $)",
-                saveBrandingButton = if (isInd) "Update Profile" else "Update Branding",
+                saveBrandingButton = if (isInd) "Update Profile" else "Update Business Info",
                 categoriesSectionTitle = "Custom Transaction Categories",
                 newCategoryPlaceholder = "Enter new category...",
                 addCategoryButton = "Add Category",
@@ -227,10 +228,10 @@ object LocalizationProvider {
                 backupSubtitle = "Export or import all accounts, transactions, and settings as a portable JSON file.",
                 exportJsonButton = "Export JSON Backup",
                 importJsonButton = "Import JSON Backup",
-                languageSectionTitle = "App Language (ভাষা)",
-                glassThemeSectionTitle = "Liquid Glass Surface Mode",
-                darkGlassModeLabel = "Dark Liquid Glass",
-                lightGlassModeLabel = "Light Frosted Glass",
+                languageSectionTitle = "App Language",
+                glassThemeSectionTitle = "Theme Mode",
+                darkGlassModeLabel = "Dark Glass Mode",
+                lightGlassModeLabel = "Light Glass Mode",
                 noCustomersEmptyTitle = if (isInd) "No Person or Business Found" else "No Customers Found",
                 noCustomersEmptyDesc = if (isInd) {
                     "Tap '+' below to add a person or business, or import directly from your phone contacts."
@@ -238,7 +239,7 @@ object LocalizationProvider {
                     "Tap '+' below to add a customer or import directly from your phone contacts."
                 },
                 noTransactionsEmptyTitle = "No Transactions Recorded",
-                noTransactionsEmptyDesc = "Tap 'টাকা পাব / দিয়েছি' (Debit) or 'টাকা দেব / পেয়েছি' (Credit) to record an entry.",
+                noTransactionsEmptyDesc = "Tap 'You Gave (Debit)' or 'You Got (Credit)' to record your first entry.",
                 quickNewEntry = "Quick Ledger Entry",
                 selectCustomerLabel = if (isInd) "Select Person or Business" else "Select Customer",
                 dateTimeLabel = "Timestamp",
@@ -273,17 +274,40 @@ object LocalizationProvider {
     }
 
     fun formatTimestamp(timestamp: Long, useBengaliDigits: Boolean): String {
-        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.ENGLISH)
-        val raw = sdf.format(Date(timestamp))
-        return if (useBengaliDigits) toBengaliDigits(raw) else raw
+        if (!useBengaliDigits) {
+            val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.ENGLISH)
+            return sdf.format(Date(timestamp))
+        }
+        val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val day = cal.get(Calendar.DAY_OF_MONTH).toString().padStart(2, '0')
+        val monthNamesBn = arrayOf(
+            "জানু", "ফেব্রু", "মার্চ", "এপ্রিল", "মে", "জুন",
+            "জুলাই", "আগস্ট", "সেপ্টে", "অক্টো", "নভে", "ডিসে"
+        )
+        val monthBn = monthNamesBn[cal.get(Calendar.MONTH).coerceIn(0, 11)]
+        val year = cal.get(Calendar.YEAR).toString()
+        val hour24 = cal.get(Calendar.HOUR_OF_DAY)
+        val hour12 = when (val h = hour24 % 12) {
+            0 -> 12
+            else -> h
+        }.toString().padStart(2, '0')
+        val minute = cal.get(Calendar.MINUTE).toString().padStart(2, '0')
+        val periodBn = when (hour24) {
+            in 5..11 -> "সকাল"
+            in 12..15 -> "দুপুর"
+            in 16..17 -> "বিকাল"
+            in 18..19 -> "সন্ধ্যা"
+            else -> "রাত"
+        }
+        return toBengaliDigits("$day $monthBn $year, $periodBn $hour12:$minute")
     }
 
     fun paymentMethodLabel(method: String, isBn: Boolean): String {
         return when (method.uppercase()) {
-            "CASH" -> if (isBn) "নগদ (Cash)" else "Cash"
-            "BKASH" -> if (isBn) "বিকাশ (bKash)" else "bKash"
-            "NAGAD" -> if (isBn) "নগদ অ্যাপ (Nagad)" else "Nagad"
-            "BANK" -> if (isBn) "ব্যাংক (Bank)" else "Bank"
+            "CASH" -> if (isBn) "নগদ" else "Cash"
+            "BKASH" -> if (isBn) "বিকাশ" else "bKash"
+            "NAGAD" -> if (isBn) "নগদ অ্যাপ" else "Nagad"
+            "BANK" -> if (isBn) "ব্যাংক" else "Bank"
             else -> method
         }
     }
@@ -296,9 +320,16 @@ object LocalizationProvider {
         ownerPhone: String,
         isCreditMode: Boolean = balanceAmount < -0.001,
         lastTxAmount: Double? = null,
-        isBn: Boolean = true
+        isBn: Boolean = true,
+        lastTxType: String? = null
     ): List<Pair<String, String>> {
-        val effectiveShop = businessName.ifBlank { "TK Pro" }
+        val bnShopAt = if (businessName.isNotBlank()) "'$businessName'-এ" else "আমাদের হিসাবে"
+        val bnShopPossessive = if (businessName.isNotBlank()) "'$businessName'-এর" else "আমাদের"
+        val enShopAt = if (businessName.isNotBlank()) "at '$businessName'" else "with us"
+        val enShopWith = if (businessName.isNotBlank()) "with '$businessName'" else "with us"
+        val enShopFrom = if (businessName.isNotBlank()) "from '$businessName'" else "from us"
+        val enShopRecords = if (businessName.isNotBlank()) "per '$businessName' records" else "per our records"
+
         val contactSuffix = if (ownerPhone.isNotBlank()) {
             if (isBn) " যোগাযোগ: $ownerPhone।" else " Contact: $ownerPhone."
         } else {
@@ -309,84 +340,161 @@ object LocalizationProvider {
         } else {
             numberFormat.format(abs(balanceAmount))
         }
-        val cleanLastTx = lastTxAmount?.takeIf { it > 0.0 }?.let {
-            if (isBn) toBengaliDigits(numberFormat.format(abs(it))) else numberFormat.format(abs(it))
-        } ?: cleanBalance
 
+        val expectedType = if (isCreditMode) "CREDIT" else "DEBIT"
+        val matchingTxAmount = lastTxAmount
+            ?.takeIf { it > 0.0 && (lastTxType == null || lastTxType.equals(expectedType, ignoreCase = true)) }
+            ?.let { amt ->
+                if (isBn) toBengaliDigits(numberFormat.format(abs(amt))) else numberFormat.format(abs(amt))
+            }
+
+        // Written strictly from the recipient's perspective
         val currentStatusText = when {
             balanceAmount > 0.001 -> if (isBn) {
-                "বর্তমান বকেয়া: $currencySymbol $cleanBalance (পাব)"
+                "আপনার বর্তমান বকেয়া: $currencySymbol $cleanBalance।"
             } else {
-                "Current Due: $currencySymbol $cleanBalance (Receivable)"
+                "Your current due balance is $currencySymbol $cleanBalance."
             }
             balanceAmount < -0.001 -> if (isBn) {
-                "আপনার পাওনা/জমা: $currencySymbol $cleanBalance (দেব)"
+                "আমাদের কাছে আপনার জমা রয়েছে: $currencySymbol $cleanBalance।"
             } else {
-                "Your Credit Balance: $currencySymbol $cleanBalance (Payable)"
+                "Your advance credit balance with us is $currencySymbol $cleanBalance."
             }
             else -> if (isBn) {
-                "বর্তমান ব্যালেন্স: $currencySymbol ০ (পরিশোধিত)"
+                "বর্তমানে আপনার হিসাব সম্পূর্ণ পরিশোধিত (বকেয়া: $currencySymbol ০)।"
             } else {
-                "Current Balance: $currencySymbol 0 (Settled)"
+                "Your account is currently settled (Due: $currencySymbol 0)."
             }
         }
 
         return if (!isCreditMode) {
-            // DEBIT / RECEIVABLE TEMPLATES (টাকা পাব / দিয়েছি — বাকি ও তাগাদা মেসেজ)
+            // DEBIT / DUE TEMPLATES
             if (isBn) {
-                val debitEntryMsg =
-                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার নামে $currencySymbol $cleanLastTx বাকি/প্রদান (Debit) হিসাব যোগ হয়েছে। $currentStatusText।$contactSuffix"
-                val politeReminder =
-                    "প্রিয় $customerName, আসসালামু আলাইকুম। আমাদের '$effectiveShop'-এ আপনার বর্তমান বকেয়া হিসাব $currencySymbol $cleanBalance। সুবিধাজনক সময়ে বকেয়া পরিশোধ করার জন্য বিনীত অনুরোধ করা হলো।$contactSuffix"
-                val urgentReminder =
-                    "সম্মানিত $customerName, '$effectiveShop' থেকে আপনার পূর্বের বাকি $currencySymbol $cleanBalance দ্রুত পরিশোধ করার জন্য অনুরোধ জানানো হচ্ছে। বিকাশ/নগদ বা সরাসরি দোকানে জমা দিতে পারেন।$contactSuffix ধন্যবাদ।"
+                val primaryMsg = when {
+                    balanceAmount > 0.001 ->
+                        "প্রিয় $customerName, আসসালামু আলাইকুম। $bnShopAt আপনার বর্তমান বকেয়া রয়েছে $currencySymbol $cleanBalance। সুবিধামতো সময়ে বকেয়া পরিশোধ করার জন্য বিনীত অনুরোধ করা হলো।$contactSuffix"
+                    balanceAmount < -0.001 ->
+                        "প্রিয় $customerName, আসসালামু আলাইকুম। $bnShopPossessive হিসাব অনুযায়ী বর্তমানে আপনার কোনো বকেয়া নেই; বরং আমাদের কাছে আপনার $currencySymbol $cleanBalance জমা রয়েছে।$contactSuffix"
+                    else ->
+                        "প্রিয় $customerName, আসসালামু আলাইকুম। $bnShopAt আপনার সকল হিসাব বর্তমানে পরিশোধিত রয়েছে (বকেয়া: $currencySymbol ০)। ধন্যবাদ!$contactSuffix"
+                }
+
+                val entryMsg = if (matchingTxAmount != null) {
+                    "প্রিয় $customerName, $bnShopAt আপনার নামে $currencySymbol $matchingTxAmount নতুন বাকি লেখা হয়েছে। $currentStatusText$contactSuffix"
+                } else {
+                    "প্রিয় $customerName, $bnShopAt আপনার হিসাব আপডেট করা হয়েছে। $currentStatusText$contactSuffix"
+                }
+
+                val thirdTitleAndMsg = if (balanceAmount > 0.001) {
+                    "জরুরি তাগাদা" to
+                        "সম্মানিত $customerName, $bnShopAt আপনার বকেয়া $currencySymbol $cleanBalance দ্রুত পরিশোধ করার জন্য অনুরোধ জানানো হচ্ছে। নগদ, বিকাশ বা নগদ অ্যাপে পরিশোধ করতে পারেন।$contactSuffix ধন্যবাদ।"
+                } else {
+                    "হিসাব বিবরণী" to
+                        "প্রিয় $customerName, $bnShopPossessive সাথে আপনার বর্তমান হিসাব আপডেট: $currentStatusText আমাদের সাথে লেনদেনের জন্য ধন্যবাদ।$contactSuffix"
+                }
+
+                val primaryTitle = when {
+                    balanceAmount > 0.001 -> "বকেয়া তাগাদা"
+                    balanceAmount < -0.001 -> "হিসাব তথ্য"
+                    else -> "হিসাব পরিশোধিত"
+                }
 
                 listOf(
-                    "বাকি তাগাদা (Due Reminder)" to politeReminder,
-                    "নতুন বাকি (Debit Entry)" to debitEntryMsg,
-                    "জরুরি তাগাদা (Urgent Due)" to urgentReminder
+                    primaryTitle to primaryMsg,
+                    "নতুন বাকি হিসাব" to entryMsg,
+                    thirdTitleAndMsg
                 )
             } else {
-                val debitEntryMsg =
-                    "Dear $customerName, a Debit entry of $currencySymbol $cleanLastTx has been recorded in '$effectiveShop'. $currentStatusText.$contactSuffix"
-                val politeReminder =
-                    "Dear $customerName, your current due balance at '$effectiveShop' is $currencySymbol $cleanBalance. Kindly clear the due at your convenience.$contactSuffix"
-                val urgentReminder =
-                    "Dear $customerName, please settle your overdue balance of $currencySymbol $cleanBalance at '$effectiveShop' as soon as possible.$contactSuffix Thank you."
+                val primaryMsg = when {
+                    balanceAmount > 0.001 ->
+                        "Dear $customerName, your current due balance $enShopWith is $currencySymbol $cleanBalance. Kindly settle it at your convenience.$contactSuffix"
+                    balanceAmount < -0.001 ->
+                        "Dear $customerName, $enShopRecords, you have no due balance — you currently have an advance credit of $currencySymbol $cleanBalance with us.$contactSuffix"
+                    else ->
+                        "Dear $customerName, your account $enShopWith is completely settled with no due balance ($currencySymbol 0). Thank you!$contactSuffix"
+                }
+
+                val entryMsg = if (matchingTxAmount != null) {
+                    "Dear $customerName, an amount of $currencySymbol $matchingTxAmount has been added to your due balance $enShopAt. $currentStatusText$contactSuffix"
+                } else {
+                    "Dear $customerName, your account ledger $enShopAt has been updated. $currentStatusText$contactSuffix"
+                }
+
+                val thirdTitleAndMsg = if (balanceAmount > 0.001) {
+                    "Urgent Reminder" to
+                        "Dear $customerName, please settle your overdue balance of $currencySymbol $cleanBalance $enShopWith as soon as possible.$contactSuffix Thank you."
+                } else {
+                    "Account Summary" to
+                        "Dear $customerName, here is your ledger summary $enShopFrom: $currentStatusText Thank you!$contactSuffix"
+                }
+
+                val primaryTitle = when {
+                    balanceAmount > 0.001 -> "Due Reminder"
+                    balanceAmount < -0.001 -> "Balance Notice"
+                    else -> "Account Settled"
+                }
 
                 listOf(
-                    "Due Reminder" to politeReminder,
-                    "Debit Entry" to debitEntryMsg,
-                    "Urgent Reminder" to urgentReminder
+                    primaryTitle to primaryMsg,
+                    "New Due Entry" to entryMsg,
+                    thirdTitleAndMsg
                 )
             }
         } else {
-            // CREDIT / PAYMENT RECEIVED / PAYABLE TEMPLATES (টাকা দেব / পেয়েছি — জমা ও পরিশোধ মেসেজ)
+            // CREDIT / PAYMENT RECEIVED TEMPLATES
             if (isBn) {
-                val paymentReceivedMsg =
-                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার $currencySymbol $cleanLastTx জমা/পরিশোধ (Credit) সফলভাবে গৃহীত হয়েছে। ধন্যবাদ! $currentStatusText।$contactSuffix"
-                val payableAckMsg =
-                    "প্রিয় $customerName, আসসালামু আলাইকুম। আমাদের '$effectiveShop'-এর হিসাব অনুযায়ী আপনার $currencySymbol $cleanBalance আমাদের কাছে পাওনা/জমা (Credit) রয়েছে। ইনশাআল্লাহ শীঘ্রই পরিশোধ করা হবে।$contactSuffix"
-                val settledOrStatementMsg =
-                    "প্রিয় $customerName, '$effectiveShop'-এ আপনার জমা হিসাব আপডেট করা হয়েছে। $currentStatusText। আমাদের সাথে লেনদেনের জন্য ধন্যবাদ।$contactSuffix"
+                val paymentReceivedMsg = if (matchingTxAmount != null) {
+                    "প্রিয় $customerName, $bnShopAt আপনার দেওয়া $currencySymbol $matchingTxAmount জমা হিসেবে গ্রহণ করা হয়েছে। ধন্যবাদ! $currentStatusText$contactSuffix"
+                } else {
+                    "প্রিয় $customerName, $bnShopAt আপনার জমা ও লেনদেন হিসাব আপডেট করা হয়েছে। ধন্যবাদ! $currentStatusText$contactSuffix"
+                }
+
+                val secondTitleAndMsg = when {
+                    balanceAmount < -0.001 ->
+                        "আপনার জমা তথ্য" to
+                            "প্রিয় $customerName, আসসালামু আলাইকুম। $bnShopPossessive হিসাব অনুযায়ী আমাদের কাছে আপনার $currencySymbol $cleanBalance জমা রয়েছে। শীঘ্রই তা পরিশোধ করা হবে।$contactSuffix"
+                    balanceAmount > 0.001 ->
+                        "অবশিষ্ট বকেয়া" to
+                            "প্রিয় $customerName, জমার পর $bnShopAt আপনার অবশিষ্ট বকেয়া রয়েছে $currencySymbol $cleanBalance। সুবিধামতো সময়ে বাকি টাকা পরিশোধ করার অনুরোধ রইল।$contactSuffix"
+                    else ->
+                        "হিসাব পরিশোধিত" to
+                            "প্রিয় $customerName, আপনার সকল বকেয়া পরিশোধ হওয়ায় $bnShopAt আপনার বর্তমান বকেয়া $currencySymbol ০। আমাদের সাথে থাকার জন্য ধন্যবাদ!$contactSuffix"
+                }
+
+                val summaryMsg =
+                    "প্রিয় $customerName, $bnShopAt আপনার সর্বশেষ হিসাব বিবরণী: $currentStatusText আমাদের সাথে লেনদেনের জন্য ধন্যবাদ।$contactSuffix"
 
                 listOf(
-                    "জমা প্রাপ্তি (Payment Received)" to paymentReceivedMsg,
-                    "দেবেন / পাওনা (Payable Info)" to payableAckMsg,
-                    "জমা বিবরণী (Credit Summary)" to settledOrStatementMsg
+                    "জমা প্রাপ্তি" to paymentReceivedMsg,
+                    secondTitleAndMsg,
+                    "হিসাব বিবরণী" to summaryMsg
                 )
             } else {
-                val paymentReceivedMsg =
-                    "Dear $customerName, we have received your payment/credit of $currencySymbol $cleanLastTx at '$effectiveShop'. Thank you! $currentStatusText.$contactSuffix"
-                val payableAckMsg =
-                    "Dear $customerName, according to '$effectiveShop' records, a credit/payable balance of $currencySymbol $cleanBalance is due to you.$contactSuffix"
-                val settledOrStatementMsg =
-                    "Dear $customerName, your credit ledger at '$effectiveShop' has been updated. $currentStatusText. Thank you for doing business with us!$contactSuffix"
+                val paymentReceivedMsg = if (matchingTxAmount != null) {
+                    "Dear $customerName, thank you! We have received your payment of $currencySymbol $matchingTxAmount $enShopAt. $currentStatusText$contactSuffix"
+                } else {
+                    "Dear $customerName, your payment and ledger records $enShopAt have been updated. Thank you! $currentStatusText$contactSuffix"
+                }
+
+                val secondTitleAndMsg = when {
+                    balanceAmount < -0.001 ->
+                        "Credit Balance Notice" to
+                            "Dear $customerName, $enShopRecords, we hold an advance credit balance of $currencySymbol $cleanBalance for you, which will be settled soon.$contactSuffix"
+                    balanceAmount > 0.001 ->
+                        "Remaining Due" to
+                            "Dear $customerName, following your recent payment, your remaining due balance $enShopAt is $currencySymbol $cleanBalance. Thank you!$contactSuffix"
+                    else ->
+                        "Account Settled" to
+                            "Dear $customerName, all dues are cleared and your current due balance $enShopAt is $currencySymbol 0. Thank you!$contactSuffix"
+                }
+
+                val summaryMsg =
+                    "Dear $customerName, here is your latest balance update $enShopFrom: $currentStatusText Thank you!$contactSuffix"
 
                 listOf(
                     "Payment Received" to paymentReceivedMsg,
-                    "Payable Info" to payableAckMsg,
-                    "Credit Summary" to settledOrStatementMsg
+                    secondTitleAndMsg,
+                    "Account Summary" to summaryMsg
                 )
             }
         }

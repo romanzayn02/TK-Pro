@@ -343,16 +343,22 @@ fun DashboardScreen(
                                 )
                                 Text(
                                     text = if (strings.isBn) {
-                                        if (uiState.settings.hasPendingCloudSync) {
-                                            "অফলাইন মোড: লেনদেন ফোনে সেভ আছে, অনলাইনে এলে অটো-সিঙ্ক হবে"
-                                        } else {
-                                            "অফলাইন মোড চালু আছে (ক্লাউড সিঙ্ক বন্ধ)"
+                                        when {
+                                            uiState.settings.hasPendingCloudSync ->
+                                                "অফলাইন মোড: লেনদেন ফোনে সেভ আছে, অনলাইনে এলে অটো-সিঙ্ক হবে"
+                                            !uiState.isNetworkOnline ->
+                                                "অফলাইন মোড: ইন্টারনেট সংযোগ নেই (সব তথ্য ফোনে সুরক্ষিত আছে)"
+                                            else ->
+                                                "ক্লাউড সিঙ্ক বিরতি: পুনরায় চেষ্টা করতে ট্যাপ করুন"
                                         }
                                     } else {
-                                        if (uiState.settings.hasPendingCloudSync) {
-                                            "Offline Mode: Entries saved locally & will auto-sync when online"
-                                        } else {
-                                            "Offline Mode active (Cloud sync unavailable)"
+                                        when {
+                                            uiState.settings.hasPendingCloudSync ->
+                                                "Offline Mode: Changes saved locally and will auto-sync when online"
+                                            !uiState.isNetworkOnline ->
+                                                "Offline Mode: No internet connection (Data saved locally)"
+                                            else ->
+                                                "Cloud sync paused (Tap to retry)"
                                         }
                                     },
                                     style = MaterialTheme.typography.bodySmall,
@@ -516,9 +522,9 @@ fun DashboardScreen(
                                     )
                                     val netStatusText = when {
                                         uiState.summary.netBalance > 0.001 ->
-                                            if (strings.isBn) "নিট পাওনা (Receivable)" else "Net Receivable"
+                                            if (strings.isBn) "নিট পাওনা" else "Net Receivable"
                                         uiState.summary.netBalance < -0.001 ->
-                                            if (strings.isBn) "নিট দেনা (Payable)" else "Net Payable"
+                                            if (strings.isBn) "নিট দেনা" else "Net Payable"
                                         else -> strings.settledBadge
                                     }
                                     Text(

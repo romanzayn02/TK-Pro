@@ -370,11 +370,18 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             matchesQuery && matchesFilter
         }
 
+        val isBnFallback = settings.language != "EN"
+        val isIndFallback = settings.accountType.equals("INDIVIDUAL", ignoreCase = true)
+        val unknownPartyFallback = if (isBnFallback) {
+            if (isIndFallback) "অজানা হিসাব" else "অজানা কাস্টমার"
+        } else {
+            if (isIndFallback) "Unknown Account" else "Unknown Customer"
+        }
         val txWithCustomer = transactions.map { tx ->
             val c = customerMap[tx.customerId]
             TransactionWithCustomer(
                 transaction = tx,
-                customerName = c?.name ?: "অজানা কাস্টমার",
+                customerName = c?.name ?: unknownPartyFallback,
                 customerPhone = c?.phone ?: ""
             )
         }
@@ -474,14 +481,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 avatarColorHex = color,
                 photoUri = resolvedPhoto
             )
+            val currentSettings = uiState.value.settings
+            val isBn = currentSettings.language != "EN"
+            val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
             if (openingDebit > 0.0) {
                 repository.addTransaction(
                     customerId = newId,
                     type = "DEBIT",
                     amount = openingDebit,
-                    category = "প্রারম্ভিক জের",
+                    category = if (isBn) "প্রারম্ভিক জের" else "Opening Balance",
                     paymentMethod = "CASH",
-                    note = "প্রারম্ভিক জের (টাকা পাব / দিয়েছি)",
+                    note = if (isBn) "প্রারম্ভিক জের (টাকা পাব / দিয়েছি)" else "Opening Balance (Debit)",
                     receiptUri = null
                 )
             }
@@ -490,13 +500,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     customerId = newId,
                     type = "CREDIT",
                     amount = openingCredit,
-                    category = "প্রারম্ভিক জের",
+                    category = if (isBn) "প্রারম্ভিক জের" else "Opening Balance",
                     paymentMethod = "CASH",
-                    note = "প্রারম্ভিক জের (টাকা দেব / পেয়েছি)",
+                    note = if (isBn) "প্রারম্ভিক জের (টাকা দেব / পেয়েছি)" else "Opening Balance (Credit)",
                     receiptUri = null
                 )
             }
-            _statusBannerMessage.value = "✅ ${name.trim()} খাতায় যুক্ত হয়েছে"
+            _statusBannerMessage.value = if (isBn) {
+                "✅ ${name.trim()} খাতায় যুক্ত হয়েছে"
+            } else {
+                "✅ ${name.trim()} added to ledger"
+            }
             onCreated(newId)
             triggerAutoSyncGoogleDocsIfConfigured()
         }
@@ -511,11 +525,21 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 null
             }
             repository.updateCustomerPhoto(customerId, savedPath)
-            val isBn = uiState.value.settings.language != "EN"
+            val currentSettings = uiState.value.settings
+            val isBn = currentSettings.language != "EN"
+            val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
             _statusBannerMessage.value = if (savedPath != null) {
-                if (isBn) "✅ কাস্টমারের ছবি সেভ হয়েছে (ডিভাইসে)" else "✅ Customer photo saved on device"
+                if (isBn) {
+                    if (isInd) "✅ প্রোফাইল ছবি সেভ হয়েছে (ডিভাইসে)" else "✅ কাস্টমারের ছবি সেভ হয়েছে (ডিভাইসে)"
+                } else {
+                    if (isInd) "✅ Account photo saved on device" else "✅ Customer photo saved on device"
+                }
             } else {
-                if (isBn) "✅ কাস্টমারের ছবি সরানো হয়েছে" else "✅ Customer photo removed"
+                if (isBn) {
+                    if (isInd) "✅ ছবি সরানো হয়েছে" else "✅ কাস্টমারের ছবি সরানো হয়েছে"
+                } else {
+                    if (isInd) "✅ Account photo removed" else "✅ Customer photo removed"
+                }
             }
         }
     }
@@ -550,7 +574,14 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             if (_selectedCustomerId.value == customerId) {
                 _selectedCustomerId.value = null
             }
-            _statusBannerMessage.value = "কাস্টমার হিসাব মুছে ফেলা হয়েছে"
+            val currentSettings = uiState.value.settings
+            val isBn = currentSettings.language != "EN"
+            val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
+            _statusBannerMessage.value = if (isBn) {
+                if (isInd) "হিসাবটি মুছে ফেলা হয়েছে" else "কাস্টমার হিসাব মুছে ফেলা হয়েছে"
+            } else {
+                if (isInd) "Account deleted" else "Customer account deleted"
+            }
             triggerAutoSyncGoogleDocsIfConfigured()
         }
     }
@@ -578,8 +609,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 receiptUri = receiptUri,
                 timestamp = timestamp
             )
-            val label = if (type == "DEBIT") "টাকা পাব / দিয়েছি" else "টাকা দেব / পেয়েছি"
-            _statusBannerMessage.value = "✅ $label এন্ট্রি সফলভাবে সেভ হয়েছে"
+            val isBn = uiState.value.settings.language != "EN"
+            val label = if (isBn) {
+                if (type == "DEBIT") "টাকা পাব / দিয়েছি" else "টাকা দেব / পেয়েছি"
+            } else {
+                if (type == "DEBIT") "Debit" else "Credit"
+            }
+            _statusBannerMessage.value = if (isBn) {
+                "✅ $label এন্ট্রি সফলভাবে সেভ হয়েছে"
+            } else {
+                "✅ $label entry saved successfully"
+            }
             triggerAutoSyncGoogleDocsIfConfigured()
         }
     }
@@ -637,7 +677,12 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         pendingDeletedTxIds.add(transactionId)
         viewModelScope.launch {
             repository.deleteTransaction(transactionId)
-            _statusBannerMessage.value = "লেনদেনটি মুছে ফেলা হয়েছে"
+            val isBn = uiState.value.settings.language != "EN"
+            _statusBannerMessage.value = if (isBn) {
+                "লেনদেনটি মুছে ফেলা হয়েছে"
+            } else {
+                "Transaction deleted"
+            }
             triggerAutoSyncGoogleDocsIfConfigured()
         }
     }
@@ -927,10 +972,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                             }
                             _isSyncingGoogleDocs.value = false
                             scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
+                            val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                             _statusBannerMessage.value = if (isBn) {
-                                "✅ লগইন সফল ও ক্লাউড থেকে $cCount জন কাস্টমার এবং $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                                val partyUnitBn = if (isInd) "টি হিসাব" else "জন কাস্টমার"
+                                "✅ লগইন সফল ও ক্লাউড থেকে $cCount $partyUnitBn এবং $tCount টি লেনদেন রিস্টোর হয়েছে!"
                             } else {
-                                "✅ Signed in & restored $cCount customers and $tCount transactions from Cloud!"
+                                val partyUnitEn = if (isInd) "accounts" else "customers"
+                                "✅ Signed in & restored $cCount $partyUnitEn and $tCount transactions from Cloud!"
                             }
                             return
                         }
@@ -999,10 +1047,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         _isSyncingGoogleDocs.value = false
                         scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
                         val sourceName = if (backup.isSpreadsheet) "Google Sheets" else "Google Docs"
+                        val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                         _statusBannerMessage.value = if (isBn) {
-                            "✅ $sourceName থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                            val partyUnitBn = if (isInd) "টি হিসাব" else "জন কাস্টমার"
+                            "✅ $sourceName থেকে $cCount $partyUnitBn ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
-                            "✅ Restored $cCount customers & $tCount transactions from $sourceName!"
+                            val partyUnitEn = if (isInd) "accounts" else "customers"
+                            "✅ Restored $cCount $partyUnitEn & $tCount transactions from $sourceName!"
                         }
                     }.onFailure { err ->
                         _isSyncingGoogleDocs.value = false
@@ -1124,10 +1175,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         _isSyncingGoogleDocs.value = false
                         scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
+                        val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                         _statusBannerMessage.value = if (isBn) {
-                            "✅ Google Docs থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                            val partyUnitBn = if (isInd) "টি হিসাব" else "জন কাস্টমার"
+                            "✅ Google Docs থেকে $cCount $partyUnitBn ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
-                            "✅ Restored $cCount customers & $tCount transactions from Google Docs!"
+                            val partyUnitEn = if (isInd) "accounts" else "customers"
+                            "✅ Restored $cCount $partyUnitEn & $tCount transactions from Google Docs!"
                         }
                     }.onFailure { err ->
                         _isSyncingGoogleDocs.value = false
@@ -1234,10 +1288,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         _isSyncingGoogleDocs.value = false
                         scanExistingCustomersForContactPhotos(appContext, showBannerOnResult = false)
+                        val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                         _statusBannerMessage.value = if (isBn) {
-                            "✅ Google Sheets থেকে $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                            val partyUnitBn = if (isInd) "টি হিসাব" else "জন কাস্টমার"
+                            "✅ Google Sheets থেকে $cCount $partyUnitBn ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                         } else {
-                            "✅ Restored $cCount customers & $tCount transactions from Google Sheets!"
+                            val partyUnitEn = if (isInd) "accounts" else "customers"
+                            "✅ Restored $cCount $partyUnitEn & $tCount transactions from Google Sheets!"
                         }
                     }.onFailure { err ->
                         _isSyncingGoogleDocs.value = false
@@ -1569,9 +1626,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
             if (mergedAny) {
                 _statusBannerMessage.value = if (isBn) {
-                    "🔄 ওয়েব অ্যাপের নতুন তথ্য সিঙ্ক হয়েছে ($totalMergedTransactions লেনদেন)!"
+                    "🔄 ওয়েব অ্যাপ থেকে নতুন তথ্য সিঙ্ক হয়েছে!"
                 } else {
-                    "🔄 Synced updates from web app ($totalMergedTransactions records)!"
+                    "🔄 Synced latest updates from web app!"
                 }
             }
         } catch (_: Exception) {
@@ -1592,11 +1649,21 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     json
                 }
+                val isBn = uiState.value.settings.language != "EN"
                 if (jsonString.isNotEmpty()) {
-                    _statusBannerMessage.value = "✅ JSON ডাটাবেস ব্যাকআপ সফলভাবে সেভ হয়েছে!"
+                    _statusBannerMessage.value = if (isBn) {
+                        "✅ JSON ডাটাবেস ব্যাকআপ সফলভাবে সেভ হয়েছে!"
+                    } else {
+                        "✅ JSON database backup saved successfully!"
+                    }
                 }
             } catch (e: Exception) {
-                _statusBannerMessage.value = "❌ ব্যাকআপ এক্সপোর্ট ব্যর্থ: ${e.localizedMessage}"
+                val isBn = uiState.value.settings.language != "EN"
+                _statusBannerMessage.value = if (isBn) {
+                    "❌ ব্যাকআপ এক্সপোর্ট ব্যর্থ: ${e.localizedMessage}"
+                } else {
+                    "❌ Backup export failed: ${e.localizedMessage}"
+                }
             }
         }
     }
@@ -1611,20 +1678,33 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         ?: throw IllegalArgumentException("Empty file")
                     repository.importBackupJson(text)
                 }
+                val currentSettings = uiState.value.settings
+                val isBn = currentSettings.language != "EN"
+                val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                 result.onSuccess { (cCount, tCount) ->
                     _isSyncFailedOfflineMode.value = false
                     scanExistingCustomersForContactPhotos(context, showBannerOnResult = false)
-                    val isBn = uiState.value.settings.language != "EN"
                     _statusBannerMessage.value = if (isBn) {
-                        "✅ $cCount জন কাস্টমার ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
+                        val partyUnitBn = if (isInd) "টি হিসাব" else "জন কাস্টমার"
+                        "✅ $cCount $partyUnitBn ও $tCount টি লেনদেন রিস্টোর হয়েছে!"
                     } else {
-                        "✅ Restored $cCount customers & $tCount transactions!"
+                        val partyUnitEn = if (isInd) "accounts" else "customers"
+                        "✅ Restored $cCount $partyUnitEn & $tCount transactions!"
                     }
                 }.onFailure { err ->
-                    _statusBannerMessage.value = "❌ JSON ইমপোর্ট ত্রুটি: ${err.localizedMessage}"
+                    _statusBannerMessage.value = if (isBn) {
+                        "❌ JSON ইমপোর্ট ত্রুটি: ${err.localizedMessage}"
+                    } else {
+                        "❌ JSON import error: ${err.localizedMessage}"
+                    }
                 }
             } catch (e: Exception) {
-                _statusBannerMessage.value = "❌ ফাইল পড়তে সমস্যা হয়েছে: ${e.localizedMessage}"
+                val isBn = uiState.value.settings.language != "EN"
+                _statusBannerMessage.value = if (isBn) {
+                    "❌ ফাইল পড়তে সমস্যা হয়েছে: ${e.localizedMessage}"
+                } else {
+                    "❌ Could not read file: ${e.localizedMessage}"
+                }
             }
         }
     }
@@ -1749,16 +1829,20 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             if (showBannerOnResult) {
-                val isBn = uiState.value.settings.language != "EN"
+                val currentSettings = uiState.value.settings
+                val isBn = currentSettings.language != "EN"
+                val isInd = currentSettings.accountType.equals("INDIVIDUAL", ignoreCase = true)
                 _statusBannerMessage.value = if (matchedCount > 0) {
                     if (isBn) {
-                        "✅ কন্টাক্ট লিস্ট থেকে $matchedCount জন কাস্টমারের ছবি যুক্ত হয়েছে!"
+                        val partyUnitBn = if (isInd) "টি হিসাবের" else "জন কাস্টমারের"
+                        "✅ কন্টাক্ট লিস্ট থেকে $matchedCount $partyUnitBn ছবি যুক্ত হয়েছে!"
                     } else {
-                        "✅ Matched & saved contact photos for $matchedCount customers!"
+                        val partyUnitEn = if (isInd) "accounts" else "customers"
+                        "✅ Matched & saved contact photos for $matchedCount $partyUnitEn!"
                     }
                 } else {
                     if (isBn) {
-                        "ℹ️ কন্টাক্ট লিস্টে নতুন কোনো কাস্টমারের ছবি পাওয়া যায়নি"
+                        "ℹ️ কন্টাক্ট লিস্টে নতুন কোনো প্রোফাইল ছবি পাওয়া যায়নি"
                     } else {
                         "ℹ️ No additional contact photos found for existing ledger numbers"
                     }

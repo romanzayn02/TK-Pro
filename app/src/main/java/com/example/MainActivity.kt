@@ -364,6 +364,8 @@ fun TallyKhataProApp(
                                         strings = strings,
                                         currency = uiState.settings.currencySymbol,
                                         useDarkGlass = useDarkGlass,
+                                        businessName = uiState.settings.businessName,
+                                        ownerPhone = uiState.settings.ownerPhone,
                                         onBack = { viewModel.closeCustomerDetail() },
                                         onAddDebit = {
                                             activeTxSheetConfig = "DEBIT" to selectedDetail.customer.id
@@ -431,6 +433,8 @@ fun TallyKhataProApp(
                                             strings = strings,
                                             currency = uiState.settings.currencySymbol,
                                             useDarkGlass = useDarkGlass,
+                                            businessName = uiState.settings.businessName,
+                                            ownerPhone = uiState.settings.ownerPhone,
                                             onViewReceipt = { path -> viewingReceiptPath = path },
                                             onEditTransaction = { tx -> editingTransaction = tx },
                                             onDeleteTransaction = { txId -> viewModel.deleteTransaction(txId) },

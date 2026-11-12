@@ -1150,9 +1150,10 @@ object GoogleDocsSyncService {
         transactions: List<TransactionEntity>,
         rawBackupJson: String
     ): JSONArray {
+        val isBn = settings.language != "EN"
+        val isInd = settings.accountType.equals("INDIVIDUAL", ignoreCase = true)
         val rows = JSONArray()
-        val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-        val nowStr = dateFormat.format(Date(System.currentTimeMillis()))
+        val nowStr = LocalizationProvider.formatTimestamp(System.currentTimeMillis(), isBn)
         val txByCustomer = transactions.groupBy { it.customerId }
         val customerMap = customers.associateBy { it.id }
 
@@ -1173,35 +1174,35 @@ object GoogleDocsSyncService {
             JSONArray()
                 .put("TK Pro Live Ledger")
                 .put(settings.businessName.ifBlank { "TK Pro" })
-                .put("Phone")
+                .put(if (isBn) "মোবাইল" else "Phone")
                 .put(settings.ownerPhone)
-                .put("Last Synced")
+                .put(if (isBn) "সর্বশেষ সিঙ্ক" else "Last Synced")
                 .put(nowStr)
         )
         rows.put(
             JSONArray()
-                .put("SUMMARY")
-                .put("Total Receivable (মোট পাবেন)")
+                .put(if (isBn) "সারসংক্ষেপ" else "SUMMARY")
+                .put(if (isBn) "মোট পাবেন" else "Total Receivable")
                 .put(totalReceivable)
-                .put("Total Payable (মোট দেবেন)")
+                .put(if (isBn) "মোট দেবেন" else "Total Payable")
                 .put(totalPayable)
-                .put("Net Balance (মোট ব্যালেন্স)")
+                .put(if (isBn) "মোট ব্যালেন্স" else "Net Balance")
                 .put(netOverall)
         )
         rows.put(JSONArray())
 
-        // Customer Table Header
+        // Customer / Account Table Header
         rows.put(
             JSONArray()
-                .put("CUSTOMER ID")
-                .put("NAME (নাম)")
-                .put("PHONE (মোবাইল)")
-                .put("PARTY TYPE")
-                .put("ADDRESS (ঠিকানা)")
-                .put("TOTAL DEBIT (টাকা পাব)")
-                .put("TOTAL CREDIT (টাকা দেব)")
-                .put("NET BALANCE (ব্যালেন্স)")
-                .put("STATUS")
+                .put(if (isBn) "হিসাব আইডি" else "ACCOUNT ID")
+                .put(if (isBn) "নাম" else "NAME")
+                .put(if (isBn) "মোবাইল" else "PHONE")
+                .put(if (isBn) "ধরন" else if (isInd) "ACCOUNT TYPE" else "PARTY TYPE")
+                .put(if (isBn) "ঠিকানা" else "ADDRESS")
+                .put(if (isBn) "মোট টাকা পাব / দিয়েছি" else "TOTAL DEBIT")
+                .put(if (isBn) "মোট টাকা দেব / পেয়েছি" else "TOTAL CREDIT")
+                .put(if (isBn) "নিট ব্যালেন্স" else "NET BALANCE")
+                .put(if (isBn) "অবস্থা" else "STATUS")
         )
         customers.forEach { c ->
             val cTxs = txByCustomer[c.id].orEmpty()
@@ -1209,9 +1210,9 @@ object GoogleDocsSyncService {
             val credit = cTxs.filter { it.type == "CREDIT" }.sumOf { it.amount }
             val net = debit - credit
             val status = when {
-                net > 0.001 -> "RECEIVABLE (পাবেন)"
-                net < -0.001 -> "PAYABLE (দেবেন)"
-                else -> "SETTLED (পরিশোধিত)"
+                net > 0.001 -> if (isBn) "পাবেন" else "Receivable"
+                net < -0.001 -> if (isBn) "দেবেন" else "Payable"
+                else -> if (isBn) "পরিশোধিত" else "Settled"
             }
             rows.put(
                 JSONArray()
@@ -1231,22 +1232,22 @@ object GoogleDocsSyncService {
         // Transactions Table Header
         rows.put(
             JSONArray()
-                .put("TX ID")
-                .put("DATE & TIME")
-                .put("CUSTOMER NAME")
-                .put("CUSTOMER PHONE")
-                .put("TYPE (ধরন)")
-                .put("AMOUNT (পরিমাণ)")
-                .put("CATEGORY (ক্যাটাগরি)")
-                .put("PAYMENT METHOD")
-                .put("NOTE (নোট)")
+                .put(if (isBn) "লেনদেন আইডি" else "TX ID")
+                .put(if (isBn) "তারিখ ও সময়" else "DATE & TIME")
+                .put(if (isBn) "নাম" else if (isInd) "NAME" else "CUSTOMER NAME")
+                .put(if (isBn) "মোবাইল" else "PHONE")
+                .put(if (isBn) "ধরন" else "TYPE")
+                .put(if (isBn) "পরিমাণ" else "AMOUNT")
+                .put(if (isBn) "খাত" else "CATEGORY")
+                .put(if (isBn) "পেমেন্ট মাধ্যম" else "PAYMENT METHOD")
+                .put(if (isBn) "নোট" else "NOTE")
         )
         transactions.sortedByDescending { it.timestamp }.forEach { t ->
             val cust = customerMap[t.customerId]
             rows.put(
                 JSONArray()
                     .put(t.id)
-                    .put(dateFormat.format(Date(t.timestamp)))
+                    .put(LocalizationProvider.formatTimestamp(t.timestamp, isBn))
                     .put(cust?.name ?: "")
                     .put(cust?.phone ?: "")
                     .put(t.type)
@@ -1325,9 +1326,9 @@ object GoogleDocsSyncService {
         rawBackupJson: String
     ): String {
         val isBn = settings.language != "EN"
+        val isInd = settings.accountType.equals("INDIVIDUAL", ignoreCase = true)
         val currency = settings.currencySymbol.ifBlank { "৳" }
-        val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-        val nowStr = dateFormat.format(Date(System.currentTimeMillis()))
+        val nowStr = LocalizationProvider.formatTimestamp(System.currentTimeMillis(), isBn)
 
         val txByCustomer = transactions.groupBy { it.customerId }
         var totalReceivable = 0.0
@@ -1344,14 +1345,19 @@ object GoogleDocsSyncService {
             if (net < -0.001) totalPayable += abs(net)
 
             val statusLabel = when {
-                net > 0.001 -> if (isBn) "পাবেন (Receivable)" else "Receivable"
-                net < -0.001 -> if (isBn) "দেবেন (Payable)" else "Payable"
-                else -> if (isBn) "পরিশোধিত (Settled)" else "Settled"
+                net > 0.001 -> if (isBn) "পাবেন" else "Receivable"
+                net < -0.001 -> if (isBn) "দেবেন" else "Payable"
+                else -> if (isBn) "পরিশোধিত" else "Settled"
             }
 
-            customerLines.append("${index + 1}. ${c.name} (${c.phone.ifBlank { "N/A" }})\n")
+            val phonePart = if (c.phone.isNotBlank()) " (${c.phone})" else ""
+            customerLines.append("${index + 1}. ${c.name}$phonePart\n")
             customerLines.append(
-                "   • Balance: ${LocalizationProvider.formatAmount(abs(net), currency, isBn)} [$statusLabel]\n"
+                if (isBn) {
+                    "   • ব্যালেন্স: ${LocalizationProvider.formatAmount(abs(net), currency, true)} [$statusLabel]\n"
+                } else {
+                    "   • Balance: ${LocalizationProvider.formatAmount(abs(net), currency, false)} [$statusLabel]\n"
+                }
             )
 
             if (cTxs.isNotEmpty()) {
@@ -1359,22 +1365,33 @@ object GoogleDocsSyncService {
                 cTxs.forEach { t ->
                     running += if (t.type == "DEBIT") t.amount else -t.amount
                     val tTypeLabel = if (t.type == "DEBIT") {
-                        if (isBn) "টাকা পাব / দিয়েছি (Debit)" else "Debit"
+                        if (isBn) "টাকা পাব / দিয়েছি" else "Debit"
                     } else {
-                        if (isBn) "টাকা দেব / পেয়েছি (Credit)" else "Credit"
+                        if (isBn) "টাকা দেব / পেয়েছি" else "Credit"
                     }
-                    val tDate = dateFormat.format(Date(t.timestamp))
+                    val tDate = LocalizationProvider.formatTimestamp(t.timestamp, isBn)
                     val runStatus = when {
                         running > 0.001 -> if (isBn) "পাবেন" else "Receivable"
                         running < -0.001 -> if (isBn) "দেবেন" else "Payable"
                         else -> if (isBn) "পরিশোধিত" else "Settled"
                     }
+                    val metaParts = buildList {
+                        if (t.category.isNotBlank()) add(t.category)
+                        add(LocalizationProvider.paymentMethodLabel(t.paymentMethod, isBn))
+                    }.joinToString(" • ")
+                    val amtStr = LocalizationProvider.formatAmount(t.amount, currency, isBn)
+                    val runStr = LocalizationProvider.formatAmount(abs(running), currency, isBn)
+                    val noteSuffix = if (t.note.isNotBlank()) {
+                        if (isBn) " | নোট: ${t.note}" else " | Note: ${t.note}"
+                    } else {
+                        ""
+                    }
                     customerLines.append(
-                        "     - [$tDate] $tTypeLabel: ${
-                            LocalizationProvider.formatAmount(t.amount, currency, isBn)
-                        } | (${t.category} • ${t.paymentMethod}) -> Balance After: ${
-                            LocalizationProvider.formatAmount(abs(running), currency, isBn)
-                        } ($runStatus)${if (t.note.isNotBlank()) " | Note: ${t.note}" else ""}\n"
+                        if (isBn) {
+                            "     - [$tDate] $tTypeLabel: $amtStr | ($metaParts) -> জের: $runStr ($runStatus)$noteSuffix\n"
+                        } else {
+                            "     - [$tDate] $tTypeLabel: $amtStr | ($metaParts) -> Balance After: $runStr ($runStatus)$noteSuffix\n"
+                        }
                     )
                 }
             }
@@ -1382,27 +1399,65 @@ object GoogleDocsSyncService {
         }
 
         val netOverall = totalReceivable - totalPayable
+        val netSign = when {
+            netOverall > 0.001 -> "+"
+            netOverall < -0.001 -> "-"
+            else -> ""
+        }
+        val netStatus = when {
+            netOverall > 0.001 -> if (isBn) "নিট পাওনা" else "Net Receivable"
+            netOverall < -0.001 -> if (isBn) "নিট দেনা" else "Net Payable"
+            else -> if (isBn) "পরিশোধিত" else "Settled"
+        }
 
         return buildString {
             append("====================================================\n")
-            append("   ${settings.businessName.ifBlank { "TK Pro" }} — ডিজিটাল হিসাব ও বাকি খাতা\n")
-            if (settings.ownerPhone.isNotBlank()) {
-                append("   Phone: ${settings.ownerPhone}\n")
-            }
-            append("   Last Synced: $nowStr\n")
-            append("====================================================\n\n")
-            append("📊 LEDGER SUMMARY (সারসংক্ষেপ)\n")
-            append("• মোট পাবেন (Total Receivable): ${LocalizationProvider.formatAmount(totalReceivable, currency, isBn)}\n")
-            append("• মোট দেবেন (Total Payable): ${LocalizationProvider.formatAmount(totalPayable, currency, isBn)}\n")
-            append("• মোট ব্যালেন্স (Net Balance): ${LocalizationProvider.formatAmount(netOverall, currency, isBn)}\n")
-            append("• Total Customers/Parties: ${customers.size} | Total Transactions: ${transactions.size}\n\n")
-            append("----------------------------------------------------\n")
-            append("👥 CUSTOMER LEDGERS & RUNNING BALANCES (কাস্টমার ও লেনদেন বিবরণী)\n")
-            append("----------------------------------------------------\n\n")
-            if (customers.isEmpty()) {
-                append("(No customers recorded yet)\n\n")
+            if (isBn) {
+                val subtitle = if (isInd) "ব্যক্তিগত ও ব্যবসায়িক লেনদেন খাতা" else "ডিজিটাল হিসাব ও বাকি খাতা"
+                append("   ${settings.businessName.ifBlank { "হিসাব খাতা" }} — $subtitle\n")
+                if (settings.ownerPhone.isNotBlank()) {
+                    append("   মোবাইল: ${settings.ownerPhone}\n")
+                }
+                append("   সর্বশেষ সিঙ্ক: $nowStr\n")
+                append("====================================================\n\n")
+                append("📊 সারসংক্ষেপ\n")
+                append("• মোট পাবেন: ${LocalizationProvider.formatAmount(totalReceivable, currency, true)}\n")
+                append("• মোট দেবেন: ${LocalizationProvider.formatAmount(totalPayable, currency, true)}\n")
+                append("• মোট ব্যালেন্স: $netSign${LocalizationProvider.formatAmount(netOverall, currency, true)} ($netStatus)\n")
+                val partyLabel = if (isInd) "মোট হিসাব" else "মোট কাস্টমার/পার্টি"
+                append("• $partyLabel: ${customers.size} | মোট লেনদেন: ${transactions.size}\n\n")
+                append("----------------------------------------------------\n")
+                val sectionLabel = if (isInd) "👥 হিসাব ও লেনদেন বিবরণী" else "👥 কাস্টমার ও লেনদেন বিবরণী"
+                append("$sectionLabel\n")
+                append("----------------------------------------------------\n\n")
+                if (customers.isEmpty()) {
+                    append("(এখনো কোনো হিসাব যুক্ত হয়নি)\n\n")
+                } else {
+                    append(customerLines.toString())
+                }
             } else {
-                append(customerLines.toString())
+                val subtitle = if (isInd) "Personal & Party Ledger" else "Digital Ledger & Khata"
+                append("   ${settings.businessName.ifBlank { "TK Pro" }} — $subtitle\n")
+                if (settings.ownerPhone.isNotBlank()) {
+                    append("   Phone: ${settings.ownerPhone}\n")
+                }
+                append("   Last Synced: $nowStr\n")
+                append("====================================================\n\n")
+                append("📊 LEDGER SUMMARY\n")
+                append("• Total Receivable: ${LocalizationProvider.formatAmount(totalReceivable, currency, false)}\n")
+                append("• Total Payable: ${LocalizationProvider.formatAmount(totalPayable, currency, false)}\n")
+                append("• Net Balance: $netSign${LocalizationProvider.formatAmount(netOverall, currency, false)} ($netStatus)\n")
+                val partyLabel = if (isInd) "Total Accounts" else "Total Customers/Parties"
+                append("• $partyLabel: ${customers.size} | Total Transactions: ${transactions.size}\n\n")
+                append("----------------------------------------------------\n")
+                val sectionLabel = if (isInd) "👥 ACCOUNT LEDGERS & RUNNING BALANCES" else "👥 CUSTOMER LEDGERS & RUNNING BALANCES"
+                append("$sectionLabel\n")
+                append("----------------------------------------------------\n\n")
+                if (customers.isEmpty()) {
+                    append("(No accounts recorded yet)\n\n")
+                } else {
+                    append(customerLines.toString())
+                }
             }
             append("\n----------------------------------------------------\n")
             append("🔒 MACHINE-READABLE SYNC DATA (DO NOT EDIT BELOW THIS LINE)\n")

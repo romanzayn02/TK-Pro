@@ -574,7 +574,7 @@ fun AddCustomerBottomSheet(
                             onValueChange = { openingDebitText = it.filter { ch -> ch.isDigit() || ch == '.' } },
                             label = {
                                 Text(
-                                    if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Debit ($currencySymbol)"
+                                    if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Receivable ($currencySymbol)"
                                 )
                             },
                             singleLine = true,
@@ -593,7 +593,7 @@ fun AddCustomerBottomSheet(
                             onValueChange = { openingCreditText = it.filter { ch -> ch.isDigit() || ch == '.' } },
                             label = {
                                 Text(
-                                    if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Credit ($currencySymbol)"
+                                    if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Payable ($currencySymbol)"
                                 )
                             },
                             singleLine = true,
@@ -639,9 +639,17 @@ fun AddCustomerBottomSheet(
                     onClick = {
                         if (name.trim().isEmpty()) {
                             errorMessage = if (strings.isBn) {
-                                "অনুগ্রহ করে কাস্টমারের নাম লিখুন"
+                                if (strings.isIndividual) {
+                                    "অনুগ্রহ করে ব্যক্তি বা প্রতিষ্ঠানের নাম লিখুন"
+                                } else {
+                                    "অনুগ্রহ করে কাস্টমারের নাম লিখুন"
+                                }
                             } else {
-                                "Please enter customer name"
+                                if (strings.isIndividual) {
+                                    "Please enter a person or business name"
+                                } else {
+                                    "Please enter customer name"
+                                }
                             }
                         } else {
                             val debit = openingDebitText.toDoubleOrNull() ?: 0.0
@@ -1248,7 +1256,19 @@ fun AddTransactionBottomSheet(
                     val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
                     val targetCustomerId = selectedCustomerId
                     if (targetCustomerId == null) {
-                        errorMessage = if (strings.isBn) "প্রথমে একজন কাস্টমার নির্বাচন করুন" else "Please select a customer first"
+                        errorMessage = if (strings.isBn) {
+                            if (strings.isIndividual) {
+                                "প্রথমে একজন ব্যক্তি বা প্রতিষ্ঠান নির্বাচন করুন"
+                            } else {
+                                "প্রথমে একজন কাস্টমার নির্বাচন করুন"
+                            }
+                        } else {
+                            if (strings.isIndividual) {
+                                "Please select a person or business first"
+                            } else {
+                                "Please select a customer first"
+                            }
+                        }
                     } else if (parsedAmount <= 0.0) {
                         errorMessage = if (strings.isBn) "সঠিক টাকার পরিমাণ লিখুন" else "Please enter a valid amount"
                     } else {
@@ -1424,6 +1444,7 @@ fun SmsReminderBottomSheet(
         ownerPhone,
         isCreditMode,
         lastTransactionAmount,
+        lastTransactionType,
         strings.isBn
     ) {
         LocalizationProvider.generateBengaliSmsTemplates(
@@ -1434,7 +1455,8 @@ fun SmsReminderBottomSheet(
             ownerPhone = ownerPhone,
             isCreditMode = isCreditMode,
             lastTxAmount = lastTransactionAmount,
-            isBn = strings.isBn
+            isBn = strings.isBn,
+            lastTxType = lastTransactionType
         )
     }
     var selectedIdx by remember(isCreditMode) { mutableStateOf(0) }
@@ -1458,9 +1480,9 @@ fun SmsReminderBottomSheet(
         ) {
             Text(
                 text = if (isCreditMode) {
-                    if (strings.isBn) "জমা ও দেবেন মেসেজ (Credit Message)" else "Credit & Payment Message"
+                    if (strings.isBn) "জমা ও পাওনা মেসেজ" else "Payment & Credit Messages"
                 } else {
-                    if (strings.isBn) "বকেয়া ও বাকি মেসেজ (Debit Message)" else "Debit & Due Reminder Message"
+                    if (strings.isBn) "বকেয়া ও তাগাদা মেসেজ" else "Due & Debit Messages"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
@@ -1472,7 +1494,7 @@ fun SmsReminderBottomSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 LiquidFilterChip(
-                    label = if (strings.isBn) "দিয়েছি / পাব (Debit)" else "Debit (Due)",
+                    label = if (strings.isBn) "বকেয়া / তাগাদা" else "Due / Debit",
                     selected = !isCreditMode,
                     onClick = { isCreditMode = false },
                     useDarkGlass = useDarkGlass,
@@ -1489,7 +1511,7 @@ fun SmsReminderBottomSheet(
                     testTag = "sms_mode_debit_chip"
                 )
                 LiquidFilterChip(
-                    label = if (strings.isBn) "পেয়েছি / দেব (Credit)" else "Credit (Received)",
+                    label = if (strings.isBn) "জমা / পাওনা" else "Payment / Credit",
                     selected = isCreditMode,
                     onClick = { isCreditMode = true },
                     useDarkGlass = useDarkGlass,
@@ -1548,7 +1570,7 @@ fun SmsReminderBottomSheet(
                     onClick = {
                         clipboard.setText(AnnotatedString(customSmsText))
                         onCopiedNotice(
-                            if (strings.isBn) "✅ তাগাদা মেসেজ কপি করা হয়েছে" else "✅ SMS Reminder copied to clipboard"
+                            if (strings.isBn) "✅ মেসেজ কপি করা হয়েছে" else "✅ Message copied to clipboard"
                         )
                         onDismiss()
                     },
@@ -1580,8 +1602,9 @@ fun SmsReminderBottomSheet(
                             }
                             context.startActivity(smsIntent)
                         } catch (e: Exception) {
+                            clipboard.setText(AnnotatedString(customSmsText))
                             onCopiedNotice(
-                                if (strings.isBn) "মেসেজ অ্যাপ খোলা যায়নি, টেক্সট কপি করা হয়েছে" else "Copied SMS to clipboard"
+                                if (strings.isBn) "মেসেজ অ্যাপ খোলা যায়নি, টেক্সট কপি করা হয়েছে" else "Could not open SMS app; message copied to clipboard"
                             )
                         }
                         onDismiss()
@@ -1644,7 +1667,7 @@ fun SmsReminderBottomSheet(
                                 context.startActivity(fallbackIntent)
                             } catch (_: Exception) {
                                 onCopiedNotice(
-                                    if (strings.isBn) "✅ WhatsApp মেসেজ কপি হয়েছে" else "✅ Message copied for WhatsApp"
+                                    if (strings.isBn) "✅ মেসেজ কপি হয়েছে" else "✅ Message copied for WhatsApp"
                                 )
                             }
                         }
@@ -2046,7 +2069,7 @@ fun FirstLaunchSetupDialog(
                                                 useDarkGlass = useDarkGlass,
                                                 icon = Icons.Default.Person,
                                                 accentColor = TallyCyanRefraction,
-                                                title = if (strings.isBn) "ব্যক্তিগত (Individual)" else "Individual",
+                                                title = if (strings.isBn) "ব্যক্তিগত" else "Individual",
                                                 subtitle = if (strings.isBn) {
                                                     "ব্যক্তি বা প্রতিষ্ঠানের সাথে লেনদেন হিসাব"
                                                 } else {
@@ -2157,7 +2180,7 @@ fun FirstLaunchSetupDialog(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         LiquidFilterChip(
-                                            label = if (strings.isBn) "🏪 ব্যবসা (Business)" else "🏪 Business",
+                                            label = if (strings.isBn) "🏪 ব্যবসা" else "🏪 Business",
                                             selected = !isIndividual,
                                             onClick = {
                                                 accountType = "BUSINESS"
@@ -2169,7 +2192,7 @@ fun FirstLaunchSetupDialog(
                                             testTag = "step1_account_type_business_chip"
                                         )
                                         LiquidFilterChip(
-                                            label = if (strings.isBn) "👤 ব্যক্তিগত (Individual)" else "👤 Individual",
+                                            label = if (strings.isBn) "👤 ব্যক্তিগত" else "👤 Individual",
                                             selected = isIndividual,
                                             onClick = {
                                                 accountType = "INDIVIDUAL"
@@ -2291,7 +2314,7 @@ fun FirstLaunchSetupDialog(
                                                 label = {
                                                     Text(
                                                         if (strings.isBn) {
-                                                            if (isIndividual) "আপনার নাম (Your Name)" else "ব্যবসা প্রতিষ্ঠানের নাম"
+                                                            if (isIndividual) "আপনার নাম" else "ব্যবসা প্রতিষ্ঠানের নাম"
                                                         } else {
                                                             if (isIndividual) "Your Full Name" else "Business Name"
                                                         }
@@ -2452,7 +2475,7 @@ fun FirstLaunchSetupDialog(
                                             ) {
                                                 LiquidFilterChip(
                                                     label = if (strings.isBn) {
-                                                        if (isIndividual) "👤 ব্যক্তি (Person)" else "👤 কাস্টমার"
+                                                        if (isIndividual) "👤 ব্যক্তি" else "👤 কাস্টমার"
                                                     } else {
                                                         if (isIndividual) "👤 Person" else "👤 Customer"
                                                     },
@@ -2526,7 +2549,7 @@ fun FirstLaunchSetupDialog(
                                                     },
                                                     label = {
                                                         Text(
-                                                            if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Receivable"
+                                                            if (strings.isBn) "পূর্বের পাব ($currencySymbol)" else "Opening Receivable ($currencySymbol)"
                                                         )
                                                     },
                                                     singleLine = true,
@@ -2545,7 +2568,7 @@ fun FirstLaunchSetupDialog(
                                                     },
                                                     label = {
                                                         Text(
-                                                            if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Payable"
+                                                            if (strings.isBn) "পূর্বের দেব ($currencySymbol)" else "Opening Payable ($currencySymbol)"
                                                         )
                                                     },
                                                     singleLine = true,

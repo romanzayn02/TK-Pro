@@ -326,9 +326,9 @@ fun SettingsScreen(
                                 )
                                 Text(
                                     text = if (strings.isBn) {
-                                        "অটো-সিঙ্ক এবং Docs / Sheets অপশন"
+                                        "অটো-সিঙ্ক চালু করুন অথবা Docs / Sheets অপশন খুলুন"
                                     } else {
-                                        "Tap Docs or Sheets to expand options"
+                                        "Toggle auto-sync or expand Docs / Sheets options"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -387,7 +387,7 @@ fun SettingsScreen(
                                 Column {
                                     Text(
                                         text = if (strings.isBn) {
-                                            "অফলাইন মোড (Offline Mode)"
+                                            "অফলাইন মোড চালু"
                                         } else {
                                             "Offline Mode Active"
                                         },
@@ -1415,7 +1415,7 @@ fun SettingsScreen(
                             Column {
                                 Text(
                                     text = if (strings.isBn) {
-                                        "বায়োমেট্রিক লগইন (Biometric Lock)"
+                                        "বায়োমেট্রিক ও অ্যাপ লক"
                                     } else {
                                         "Biometric Login & App Lock"
                                     },
@@ -1769,7 +1769,7 @@ fun SettingsScreen(
 
                     // Account Mode Selector: Business vs Individual
                     Text(
-                        text = if (strings.isBn) "অ্যাকাউন্টের ধরন (Account Mode)" else "Account Type (Mode)",
+                        text = if (strings.isBn) "অ্যাকাউন্টের ধরন" else "Account Type (Mode)",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1778,7 +1778,7 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         LiquidFilterChip(
-                            label = if (strings.isBn) "🏪 ব্যবসা (Business)" else "🏪 Business",
+                            label = if (strings.isBn) "🏪 ব্যবসা" else "🏪 Business",
                             selected = !isIndividual,
                             onClick = { viewModel.setAccountType("BUSINESS") },
                             useDarkGlass = useDarkGlass,
@@ -1787,7 +1787,7 @@ fun SettingsScreen(
                             testTag = "settings_account_type_business_chip"
                         )
                         LiquidFilterChip(
-                            label = if (strings.isBn) "👤 ব্যক্তিগত (Individual)" else "👤 Individual",
+                            label = if (strings.isBn) "👤 ব্যক্তিগত" else "👤 Individual",
                             selected = isIndividual,
                             onClick = { viewModel.setAccountType("INDIVIDUAL") },
                             useDarkGlass = useDarkGlass,

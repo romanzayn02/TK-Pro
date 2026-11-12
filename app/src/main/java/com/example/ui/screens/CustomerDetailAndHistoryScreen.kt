@@ -127,6 +127,189 @@ private fun sendDirectWhatsAppMessage(
     }
 }
 
+internal fun buildSingleTransactionShareText(
+    transaction: TransactionEntity,
+    customerName: String?,
+    balanceAfterTransaction: Double?,
+    currency: String,
+    isBn: Boolean,
+    businessName: String = "",
+    ownerPhone: String = ""
+): String {
+    val isDebit = transaction.type == "DEBIT"
+    val amountFormatted = LocalizationProvider.formatAmount(transaction.amount, currency, isBn)
+    val dateFormatted = LocalizationProvider.formatTimestamp(transaction.timestamp, isBn)
+    val methodLabel = LocalizationProvider.paymentMethodLabel(transaction.paymentMethod, isBn)
+    val cleanSender = businessName.trim()
+    val cleanPhone = ownerPhone.trim()
+
+    return buildString {
+        if (isBn) {
+            if (cleanSender.isNotEmpty()) {
+                append("🧾 $cleanSender — লেনদেনের রশিদ\n")
+            } else {
+                append("🧾 লেনদেনের রশিদ\n")
+            }
+            append("━━━━━━━━━━━━━━━\n")
+            if (!customerName.isNullOrBlank()) {
+                append("প্রিয় $customerName,\n")
+            }
+            if (isDebit) {
+                append("আপনার নামে $amountFormatted নতুন বাকি লেখা হয়েছে।\n")
+            } else {
+                append("আপনার দেওয়া $amountFormatted জমা হিসেবে গ্রহণ করা হয়েছে। ধন্যবাদ!\n")
+            }
+            append("🗓️ তারিখ ও সময়: $dateFormatted\n")
+            append("💳 পেমেন্টের মাধ্যম: $methodLabel\n")
+            if (transaction.category.isNotBlank()) {
+                append("🏷️ খাত: ${transaction.category}\n")
+            }
+            if (transaction.note.isNotBlank()) {
+                append("📝 বিবরণ: ${transaction.note}\n")
+            }
+            if (balanceAfterTransaction != null) {
+                val balFormatted = LocalizationProvider.formatAmount(abs(balanceAfterTransaction), currency, true)
+                append("━━━━━━━━━━━━━━━\n")
+                when {
+                    balanceAfterTransaction > 0.001 ->
+                        append("📊 এই লেনদেনের পর আপনার মোট বকেয়া: $balFormatted\n")
+                    balanceAfterTransaction < -0.001 ->
+                        append("📊 এই লেনদেনের পর আমাদের কাছে আপনার জমা আছে: $balFormatted\n")
+                    else ->
+                        append("📊 এই লেনদেনের পর আপনার সব হিসাব পরিশোধিত (বকেয়া: $currency ০)\n")
+                }
+            }
+            if (cleanPhone.isNotEmpty()) {
+                append("📞 যোগাযোগ: $cleanPhone")
+            }
+        } else {
+            if (cleanSender.isNotEmpty()) {
+                append("🧾 $cleanSender — Transaction Receipt\n")
+            } else {
+                append("🧾 Transaction Receipt\n")
+            }
+            append("━━━━━━━━━━━━━━━\n")
+            if (!customerName.isNullOrBlank()) {
+                append("Dear $customerName,\n")
+            }
+            if (isDebit) {
+                append("An amount of $amountFormatted has been added to your due balance.\n")
+            } else {
+                append("We have received your payment of $amountFormatted. Thank you!\n")
+            }
+            append("🗓️ Date & Time: $dateFormatted\n")
+            append("💳 Payment Method: $methodLabel\n")
+            if (transaction.category.isNotBlank()) {
+                append("🏷️ Category: ${transaction.category}\n")
+            }
+            if (transaction.note.isNotBlank()) {
+                append("📝 Note: ${transaction.note}\n")
+            }
+            if (balanceAfterTransaction != null) {
+                val balFormatted = LocalizationProvider.formatAmount(abs(balanceAfterTransaction), currency, false)
+                append("━━━━━━━━━━━━━━━\n")
+                when {
+                    balanceAfterTransaction > 0.001 ->
+                        append("📊 Your total due after this entry: $balFormatted\n")
+                    balanceAfterTransaction < -0.001 ->
+                        append("📊 Your advance credit with us after this entry: $balFormatted\n")
+                    else ->
+                        append("📊 Your account is fully settled after this entry (Due: $currency 0)\n")
+                }
+            }
+            if (cleanPhone.isNotEmpty()) {
+                append("📞 Contact: $cleanPhone")
+            }
+        }
+    }.trimEnd()
+}
+
+internal fun buildCustomerLedgerStatementText(
+    customerDetail: CustomerWithBalance,
+    transactions: List<TransactionEntity>,
+    currency: String,
+    isBn: Boolean,
+    businessName: String = "",
+    ownerPhone: String = ""
+): String {
+    val customer = customerDetail.customer
+    val net = customerDetail.netBalance
+    val cleanSender = businessName.trim()
+    val cleanPhone = ownerPhone.trim()
+
+    return buildString {
+        if (isBn) {
+            if (cleanSender.isNotEmpty()) {
+                append("📊 $cleanSender — হিসাবের বিবরণী\n")
+            } else {
+                append("📊 হিসাবের বিবরণী\n")
+            }
+            append("━━━━━━━━━━━━━━━\n")
+            append("প্রিয় ${customer.name},\n")
+            append("আপনার হিসাবের সারসংক্ষেপ নিচে দেওয়া হলো:\n")
+            append("• মোট বাকি নেওয়া: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, true)}\n")
+            append("• মোট পরিশোধ ও জমা: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, true)}\n")
+            val netFormatted = LocalizationProvider.formatAmount(abs(net), currency, true)
+            when {
+                net > 0.001 -> append("• আপনার বর্তমান মোট বকেয়া: $netFormatted\n")
+                net < -0.001 -> append("• আমাদের কাছে আপনার বর্তমান জমা: $netFormatted\n")
+                else -> append("• বর্তমান অবস্থা: আপনার সব হিসাব পরিশোধিত ($currency ০)\n")
+            }
+            if (transactions.isNotEmpty()) {
+                append("━━━━━━━━━━━━━━━\n")
+                append("সাম্প্রতিক লেনদেন:\n")
+                transactions.take(10).forEach { tx ->
+                    val txWord = if (tx.type == "DEBIT") "বাকি" else "জমা"
+                    val tAmt = LocalizationProvider.formatAmount(tx.amount, currency, true)
+                    val tDate = LocalizationProvider.formatTimestamp(tx.timestamp, true)
+                    val catTag = if (tx.category.isNotBlank()) " (${tx.category})" else ""
+                    append("• $tDate — $txWord: $tAmt$catTag")
+                    if (tx.note.isNotBlank()) append(" — ${tx.note}")
+                    append("\n")
+                }
+            }
+            if (cleanPhone.isNotEmpty()) {
+                append("━━━━━━━━━━━━━━━\n")
+                append("📞 যোগাযোগ: $cleanPhone")
+            }
+        } else {
+            if (cleanSender.isNotEmpty()) {
+                append("📊 $cleanSender — Account Statement\n")
+            } else {
+                append("📊 Account Statement\n")
+            }
+            append("━━━━━━━━━━━━━━━\n")
+            append("Dear ${customer.name},\n")
+            append("Here is your latest account summary:\n")
+            append("• Total Due Added: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, false)}\n")
+            append("• Total Paid / Received: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, false)}\n")
+            val netFormatted = LocalizationProvider.formatAmount(abs(net), currency, false)
+            when {
+                net > 0.001 -> append("• Your Current Total Due: $netFormatted\n")
+                net < -0.001 -> append("• Your Current Advance Credit: $netFormatted\n")
+                else -> append("• Current Status: All dues settled ($currency 0)\n")
+            }
+            if (transactions.isNotEmpty()) {
+                append("━━━━━━━━━━━━━━━\n")
+                append("Recent Transactions:\n")
+                transactions.take(10).forEach { tx ->
+                    val txWord = if (tx.type == "DEBIT") "Due" else "Paid"
+                    val tAmt = LocalizationProvider.formatAmount(tx.amount, currency, false)
+                    val tDate = LocalizationProvider.formatTimestamp(tx.timestamp, false)
+                    val catTag = if (tx.category.isNotBlank()) " (${tx.category})" else ""
+                    append("• $tDate — $txWord: $tAmt$catTag")
+                    if (tx.note.isNotBlank()) append(" — ${tx.note}")
+                    append("\n")
+                }
+            }
+            if (cleanPhone.isNotEmpty()) {
+                append("━━━━━━━━━━━━━━━\n")
+                append("📞 Contact: $cleanPhone")
+            }
+        }
+    }.trimEnd()
+}
+
 private fun shareSingleTransaction(
     context: android.content.Context,
     transaction: TransactionEntity,
@@ -134,71 +317,19 @@ private fun shareSingleTransaction(
     customerPhone: String?,
     balanceAfterTransaction: Double?,
     currency: String,
-    strings: AppStrings
+    strings: AppStrings,
+    businessName: String,
+    ownerPhone: String
 ) {
-    val isDebit = transaction.type == "DEBIT"
-    val amountFormatted = LocalizationProvider.formatAmount(transaction.amount, currency, strings.isBn)
-    val dateFormatted = LocalizationProvider.formatTimestamp(transaction.timestamp, strings.isBn)
-    val methodLabel = LocalizationProvider.paymentMethodLabel(transaction.paymentMethod, strings.isBn)
-
-    val shareText = buildString {
-        if (isDebit) {
-            append(
-                if (strings.isBn) {
-                    "🔴 ${strings.appTitle} — বাকি / প্রদান হিসাব (Debit)\n"
-                } else {
-                    "🔴 ${strings.appTitle} — Debit Entry Notice\n"
-                }
-            )
-            append("━━━━━━━━━━━━━━━\n")
-            if (!customerName.isNullOrBlank()) {
-                append(
-                    if (strings.isBn) {
-                        "প্রিয় $customerName,\nআপনার নামে $amountFormatted বাকি/প্রদান (Debit) হিসাব যোগ হয়েছে।\n"
-                    } else {
-                        "Dear $customerName,\nA Debit entry of $amountFormatted has been added to your account.\n"
-                    }
-                )
-            } else {
-                append(if (strings.isBn) "💰 বাকি/প্রদান পরিমাণ: $amountFormatted\n" else "💰 Debit Amount: $amountFormatted\n")
-            }
-        } else {
-            append(
-                if (strings.isBn) {
-                    "🟢 ${strings.appTitle} — জমা / পরিশোধ রশিদ (Credit)\n"
-                } else {
-                    "🟢 ${strings.appTitle} — Payment Received Receipt (Credit)\n"
-                }
-            )
-            append("━━━━━━━━━━━━━━━\n")
-            if (!customerName.isNullOrBlank()) {
-                append(
-                    if (strings.isBn) {
-                        "প্রিয় $customerName,\nআপনার $amountFormatted জমা/পরিশোধ (Credit) সফলভাবে গৃহীত হয়েছে। ধন্যবাদ!\n"
-                    } else {
-                        "Dear $customerName,\nYour payment/credit of $amountFormatted has been received. Thank you!\n"
-                    }
-                )
-            } else {
-                append(if (strings.isBn) "💰 জমা/পরিশোধ পরিমাণ: $amountFormatted\n" else "💰 Credit Amount: $amountFormatted\n")
-            }
-        }
-        val catSuffix = if (transaction.category.isNotBlank()) " (${transaction.category})" else ""
-        append(if (strings.isBn) "💳 মাধ্যম: $methodLabel$catSuffix\n" else "💳 Method: $methodLabel$catSuffix\n")
-        if (transaction.note.isNotBlank()) {
-            append(if (strings.isBn) "📝 বিবরণ: ${transaction.note}\n" else "📝 Note: ${transaction.note}\n")
-        }
-        if (balanceAfterTransaction != null) {
-            val statusLabel = when {
-                balanceAfterTransaction > 0.001 -> strings.receivableBadge
-                balanceAfterTransaction < -0.001 -> strings.payableBadge
-                else -> strings.settledBadge
-            }
-            val balFormatted = LocalizationProvider.formatAmount(abs(balanceAfterTransaction), currency, strings.isBn)
-            append("━━━━━━━━━━━━━━━\n")
-            append(if (strings.isBn) "📊 বর্তমান জের: $balFormatted ($statusLabel)" else "📊 Current Balance: $balFormatted ($statusLabel)")
-        }
-    }
+    val shareText = buildSingleTransactionShareText(
+        transaction = transaction,
+        customerName = customerName,
+        balanceAfterTransaction = balanceAfterTransaction,
+        currency = currency,
+        isBn = strings.isBn,
+        businessName = businessName,
+        ownerPhone = ownerPhone
+    )
 
     sendDirectWhatsAppMessage(
         context = context,
@@ -213,52 +344,22 @@ private fun shareCustomerLedgerStatement(
     customerDetail: CustomerWithBalance,
     transactions: List<TransactionEntity>,
     currency: String,
-    strings: AppStrings
+    strings: AppStrings,
+    businessName: String,
+    ownerPhone: String
 ) {
-    val customer = customerDetail.customer
-    val net = customerDetail.netBalance
-    val statusLabel = when {
-        net > 0.001 -> strings.receivableBadge
-        net < -0.001 -> strings.payableBadge
-        else -> strings.settledBadge
-    }
-
-    val statementText = buildString {
-        append("📊 ${strings.appTitle} — ")
-        append(if (strings.isBn) "হিসাব বিবরণী\n" else "Account Statement\n")
-        append("━━━━━━━━━━━━━━━\n")
-        append("👤 ${customer.name}")
-        if (customer.phone.isNotBlank()) append(" (${customer.phone})")
-        append("\n")
-        append(
-            if (strings.isBn) {
-                "• মোট দিয়েছি/পাব: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, true)}\n" +
-                    "• মোট পেয়েছি/দেব: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, true)}\n" +
-                    "• বর্তমান ব্যালেন্স: ${LocalizationProvider.formatAmount(abs(net), currency, true)} ($statusLabel)\n"
-            } else {
-                "• Total Debit: ${LocalizationProvider.formatAmount(customerDetail.totalDebit, currency, false)}\n" +
-                    "• Total Credit: ${LocalizationProvider.formatAmount(customerDetail.totalCredit, currency, false)}\n" +
-                    "• Net Balance: ${LocalizationProvider.formatAmount(abs(net), currency, false)} ($statusLabel)\n"
-            }
-        )
-        if (transactions.isNotEmpty()) {
-            append("━━━━━━━━━━━━━━━\n")
-            append(if (strings.isBn) "সাম্প্রতিক লেনদেন:\n" else "Recent Transactions:\n")
-            transactions.take(10).forEach { tx ->
-                val tSign = if (tx.type == "DEBIT") "+" else "-"
-                val tAmt = LocalizationProvider.formatAmount(tx.amount, currency, strings.isBn)
-                val tDate = LocalizationProvider.formatTimestamp(tx.timestamp, strings.isBn)
-                val catTag = if (tx.category.isNotBlank()) " (${tx.category})" else ""
-                append("• $tDate: $tSign$tAmt$catTag")
-                if (tx.note.isNotBlank()) append(" - ${tx.note}")
-                append("\n")
-            }
-        }
-    }
+    val statementText = buildCustomerLedgerStatementText(
+        customerDetail = customerDetail,
+        transactions = transactions,
+        currency = currency,
+        isBn = strings.isBn,
+        businessName = businessName,
+        ownerPhone = ownerPhone
+    )
 
     sendDirectWhatsAppMessage(
         context = context,
-        customerPhone = customer.phone,
+        customerPhone = customerDetail.customer.phone,
         messageText = statementText,
         chooserTitle = if (strings.isBn) "হিসাব বিবরণী শেয়ার করুন" else "Share Ledger Statement"
     )
@@ -271,6 +372,8 @@ fun CustomerDetailScreen(
     strings: AppStrings,
     currency: String,
     useDarkGlass: Boolean,
+    businessName: String = "",
+    ownerPhone: String = "",
     onBack: () -> Unit,
     onAddDebit: () -> Unit,
     onAddCredit: () -> Unit,
@@ -460,7 +563,9 @@ fun CustomerDetailScreen(
                                             customerDetail = customerDetail,
                                             transactions = transactions,
                                             currency = currency,
-                                            strings = strings
+                                            strings = strings,
+                                            businessName = businessName,
+                                            ownerPhone = ownerPhone
                                         )
                                     },
                                     modifier = Modifier
@@ -644,6 +749,8 @@ fun CustomerDetailScreen(
                         strings = strings,
                         currency = currency,
                         useDarkGlass = useDarkGlass,
+                        businessName = businessName,
+                        ownerPhone = ownerPhone,
                         onViewReceipt = onViewReceipt,
                         onEdit = { onEditTransaction(tx) },
                         onDelete = { pendingDeleteTransaction = tx }
@@ -738,11 +845,7 @@ fun CustomerDetailScreen(
     }
 
     pendingDeleteTransaction?.let { txToDelete ->
-        val txTypeName = if (txToDelete.type == "DEBIT") {
-            if (strings.isBn) "বাকি / প্রদান" else "Debit"
-        } else {
-            if (strings.isBn) "জমা / পরিশোধ" else "Credit"
-        }
+        val txTypeName = if (txToDelete.type == "DEBIT") strings.debitShort else strings.creditShort
         val txAmountStr = LocalizationProvider.formatAmount(txToDelete.amount, currency, strings.isBn)
         val deleteTxTitle = if (strings.isBn) "লেনদেন মুছে ফেলবেন?" else "Delete Transaction?"
         val deleteTxMsg = if (strings.isBn) {
@@ -806,6 +909,8 @@ fun TransactionHistoryScreen(
     strings: AppStrings,
     currency: String,
     useDarkGlass: Boolean,
+    businessName: String = "",
+    ownerPhone: String = "",
     onViewReceipt: (String) -> Unit,
     onEditTransaction: (TransactionEntity) -> Unit,
     onDeleteTransaction: (Long) -> Unit,
@@ -900,6 +1005,8 @@ fun TransactionHistoryScreen(
                     strings = strings,
                     currency = currency,
                     useDarkGlass = useDarkGlass,
+                    businessName = businessName,
+                    ownerPhone = ownerPhone,
                     onViewReceipt = onViewReceipt,
                     onEdit = { onEditTransaction(item.transaction) },
                     onDelete = { pendingDeleteTransaction = item.transaction },
@@ -910,11 +1017,7 @@ fun TransactionHistoryScreen(
     }
 
     pendingDeleteTransaction?.let { txToDelete ->
-        val txTypeName = if (txToDelete.type == "DEBIT") {
-            if (strings.isBn) "বাকি / প্রদান" else "Debit"
-        } else {
-            if (strings.isBn) "জমা / পরিশোধ" else "Credit"
-        }
+        val txTypeName = if (txToDelete.type == "DEBIT") strings.debitShort else strings.creditShort
         val txAmountStr = LocalizationProvider.formatAmount(txToDelete.amount, currency, strings.isBn)
         val deleteTxTitle = if (strings.isBn) "লেনদেন মুছে ফেলবেন?" else "Delete Transaction?"
         val deleteTxMsg = if (strings.isBn) {
@@ -951,6 +1054,8 @@ fun TransactionItemGlassCard(
     strings: AppStrings,
     currency: String,
     useDarkGlass: Boolean,
+    businessName: String = "",
+    ownerPhone: String = "",
     onViewReceipt: (String) -> Unit,
     onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit,
@@ -1167,7 +1272,9 @@ fun TransactionItemGlassCard(
                                 customerPhone = customerPhone,
                                 balanceAfterTransaction = balanceAfterTransaction,
                                 currency = currency,
-                                strings = strings
+                                strings = strings,
+                                businessName = businessName,
+                                ownerPhone = ownerPhone
                             )
                         },
                         modifier = Modifier

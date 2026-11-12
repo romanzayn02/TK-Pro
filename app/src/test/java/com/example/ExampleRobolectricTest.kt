@@ -187,5 +187,184 @@ class ExampleRobolectricTest {
         assertEquals(1, transactions.size)
         assertEquals(10L, transactions.first().id)
     }
+
+    @Test
+    fun `verify SMS templates match balance perspective and do not contradict mode`() {
+        // Case 1: Customer owes 5000, Credit mode selected -> must NOT claim shop owes customer 5000
+        val creditWhenDue = LocalizationProvider.generateBengaliSmsTemplates(
+            customerName = "Karim",
+            balanceAmount = 5000.0,
+            currencySymbol = "৳",
+            businessName = "Bismillah Store",
+            ownerPhone = "01700000000",
+            isCreditMode = true,
+            lastTxAmount = 500.0,
+            isBn = false,
+            lastTxType = "DEBIT"
+        )
+        assertEquals(3, creditWhenDue.size)
+        assertTrue(creditWhenDue.none { it.second.contains("we owe you") })
+        // Since lastTxType was DEBIT while Credit mode is selected, must not claim a 500 payment or fake 5000 payment
+        assertTrue(creditWhenDue.first().second.contains("updated"))
+
+        // Case 2: Shop owes customer 2000 (balanceAmount = -2000), Debit mode selected -> must NOT demand due payment
+        val debitWhenPayable = LocalizationProvider.generateBengaliSmsTemplates(
+            customerName = "রহিম",
+            balanceAmount = -2000.0,
+            currencySymbol = "৳",
+            businessName = "বিসমিল্লাহ স্টোর",
+            ownerPhone = "",
+            isCreditMode = false,
+            lastTxAmount = null,
+            isBn = true
+        )
+        assertEquals(3, debitWhenPayable.size)
+        assertTrue(debitWhenPayable.first().second.contains("কোনো বকেয়া নেই"))
+        assertTrue(debitWhenPayable.none { it.second.contains("পরিশোধ করার জন্য অনুরোধ") })
+
+        // Case 3: Settled (0) in Debit mode -> must NOT ask to pay 0 overdue
+        val settledDebit = LocalizationProvider.generateBengaliSmsTemplates(
+            customerName = "Sajib",
+            balanceAmount = 0.0,
+            currencySymbol = "৳",
+            businessName = "Test Shop",
+            ownerPhone = "",
+            isCreditMode = false,
+            isBn = false
+        )
+        assertTrue(settledDebit.first().second.contains("completely settled"))
+        assertTrue(settledDebit.none { it.second.contains("overdue balance") })
+    }
+
+    @Test
+    fun `verify English localization strings contain no stray Bengali characters`() {
+        val en = LocalizationProvider.getStrings("EN", "BUSINESS")
+        val enInd = LocalizationProvider.getStrings("EN", "INDIVIDUAL")
+        val checkedFields = listOf(
+            en.totalReceivable,
+            en.totalPayable,
+            en.netBalance,
+            en.receivableBadge,
+            en.payableBadge,
+            en.debitTitle,
+            en.creditTitle,
+            en.filterReceivable,
+            en.filterPayable,
+            en.languageSectionTitle,
+            en.noTransactionsEmptyDesc,
+            enInd.addCustomer,
+            enInd.selectCustomerLabel
+        )
+        val hasBengaliChar = Regex("[\\u0980-\\u09FF]")
+        checkedFields.forEach { text ->
+            org.junit.Assert.assertFalse("Unexpected Bengali in EN string: $text", hasBengaliChar.containsMatchIn(text))
+        }
+    }
+
+    @Test
+    fun `verify pure Bengali timestamps payment methods and share messages without language mixing`() {
+        val hasEnglishLetters = Regex("[A-Za-z]")
+        val hasBengaliChar = Regex("[\\u0980-\\u09F1\\u09F4-\\u09FF]")
+
+        val ts = 1762943400000L // fixed epoch
+        val bnTime = LocalizationProvider.formatTimestamp(ts, useBengaliDigits = true)
+        val enTime = LocalizationProvider.formatTimestamp(ts, useBengaliDigits = false)
+        org.junit.Assert.assertFalse("Bengali timestamp must not contain English letters: $bnTime", hasEnglishLetters.containsMatchIn(bnTime))
+        org.junit.Assert.assertFalse("English timestamp must not contain Bengali letters: $enTime", hasBengaliChar.containsMatchIn(enTime))
+
+        listOf("CASH", "BKASH", "NAGAD", "BANK").forEach { method ->
+            val bnLabel = LocalizationProvider.paymentMethodLabel(method, isBn = true)
+            val enLabel = LocalizationProvider.paymentMethodLabel(method, isBn = false)
+            org.junit.Assert.assertFalse("Bengali method must not contain English letters: $bnLabel", hasEnglishLetters.containsMatchIn(bnLabel))
+            org.junit.Assert.assertFalse("English method must not contain Bengali letters: $enLabel", hasBengaliChar.containsMatchIn(enLabel))
+        }
+
+        val debitTx = com.example.data.TransactionEntity(
+            id = 1L,
+            customerId = 10L,
+            type = "DEBIT",
+            amount = 500.0,
+            category = "মুদি পণ্য",
+            paymentMethod = "CASH",
+            note = "চাল ও ডাল",
+            timestamp = ts
+        )
+        val creditTx = com.example.data.TransactionEntity(
+            id = 2L,
+            customerId = 10L,
+            type = "CREDIT",
+            amount = 300.0,
+            category = "নগদ আদায়",
+            paymentMethod = "BKASH",
+            note = "",
+            timestamp = ts
+        )
+
+        // Bengali DEBIT share with blank businessName must contain zero English letters
+        val bnDebitMsg = com.example.ui.screens.buildSingleTransactionShareText(
+            transaction = debitTx,
+            customerName = "করিম সাহেব",
+            balanceAfterTransaction = 1500.0,
+            currency = "৳",
+            isBn = true,
+            businessName = "",
+            ownerPhone = "01700000000"
+        )
+        org.junit.Assert.assertFalse("BN debit share must not mix English: $bnDebitMsg", hasEnglishLetters.containsMatchIn(bnDebitMsg))
+        assertTrue(bnDebitMsg.contains("প্রিয় করিম সাহেব"))
+        assertTrue(bnDebitMsg.contains("আপনার নামে ৳ ৫০০ নতুন বাকি লেখা হয়েছে"))
+        assertTrue(bnDebitMsg.contains("এই লেনদেনের পর আপনার মোট বকেয়া: ৳ ১,৫০০"))
+
+        // Bengali CREDIT share with shop name
+        val bnCreditMsg = com.example.ui.screens.buildSingleTransactionShareText(
+            transaction = creditTx,
+            customerName = "করিম সাহেব",
+            balanceAfterTransaction = -200.0,
+            currency = "৳",
+            isBn = true,
+            businessName = "বিসমিল্লাহ স্টোর",
+            ownerPhone = ""
+        )
+        org.junit.Assert.assertFalse("BN credit share must not mix English: $bnCreditMsg", hasEnglishLetters.containsMatchIn(bnCreditMsg))
+        assertTrue(bnCreditMsg.contains("বিসমিল্লাহ স্টোর — লেনদেনের রশিদ"))
+        assertTrue(bnCreditMsg.contains("জমা হিসেবে গ্রহণ করা হয়েছে"))
+        assertTrue(bnCreditMsg.contains("আমাদের কাছে আপনার জমা আছে: ৳ ২০০"))
+
+        // English DEBIT share must contain zero Bengali and zero "TK Pro" when blank
+        val enDebitMsg = com.example.ui.screens.buildSingleTransactionShareText(
+            transaction = debitTx.copy(category = "Groceries", note = "Rice & oil"),
+            customerName = "Karim",
+            balanceAfterTransaction = 0.0,
+            currency = "৳",
+            isBn = false,
+            businessName = "Bismillah Store",
+            ownerPhone = "01700000000"
+        )
+        org.junit.Assert.assertFalse("EN share must not contain Bengali: $enDebitMsg", hasBengaliChar.containsMatchIn(enDebitMsg))
+        assertTrue(enDebitMsg.contains("Bismillah Store — Transaction Receipt"))
+        assertTrue(enDebitMsg.contains("added to your due balance"))
+        assertTrue(enDebitMsg.contains("Your account is fully settled after this entry"))
+
+        // Statement share in Bengali must not contain English
+        val customerDetail = com.example.data.CustomerWithBalance(
+            customer = com.example.data.CustomerEntity(id = 10L, name = "রহিম", phone = "01711111111"),
+            totalDebit = 500.0,
+            totalCredit = 300.0,
+            lastTransactionTime = ts,
+            transactionCount = 2
+        )
+        val bnStatement = com.example.ui.screens.buildCustomerLedgerStatementText(
+            customerDetail = customerDetail,
+            transactions = listOf(creditTx, debitTx),
+            currency = "৳",
+            isBn = true,
+            businessName = "বিসমিল্লাহ স্টোর",
+            ownerPhone = "01700000000"
+        )
+        org.junit.Assert.assertFalse("BN statement must not mix English: $bnStatement", hasEnglishLetters.containsMatchIn(bnStatement))
+        assertTrue(bnStatement.contains("আপনার বর্তমান মোট বকেয়া: ৳ ২০০"))
+        assertTrue(bnStatement.contains("বাকি: ৳ ৫০০"))
+        assertTrue(bnStatement.contains("জমা: ৳ ৩০০"))
+    }
 }
 

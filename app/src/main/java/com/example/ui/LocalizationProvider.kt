@@ -303,12 +303,14 @@ object LocalizationProvider {
     }
 
     fun paymentMethodLabel(method: String, isBn: Boolean): String {
-        return when (method.uppercase()) {
+        val trimmed = method.trim()
+        return when (trimmed.uppercase()) {
+            "" -> ""
             "CASH" -> if (isBn) "নগদ" else "Cash"
             "BKASH" -> if (isBn) "বিকাশ" else "bKash"
             "NAGAD" -> if (isBn) "নগদ অ্যাপ" else "Nagad"
             "BANK" -> if (isBn) "ব্যাংক" else "Bank"
-            else -> method
+            else -> trimmed
         }
     }
 

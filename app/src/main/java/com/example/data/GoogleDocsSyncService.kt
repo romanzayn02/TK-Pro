@@ -1375,10 +1375,12 @@ object GoogleDocsSyncService {
                         running < -0.001 -> if (isBn) "দেবেন" else "Payable"
                         else -> if (isBn) "পরিশোধিত" else "Settled"
                     }
+                    val txMethodLabel = LocalizationProvider.paymentMethodLabel(t.paymentMethod, isBn)
                     val metaParts = buildList {
                         if (t.category.isNotBlank()) add(t.category)
-                        add(LocalizationProvider.paymentMethodLabel(t.paymentMethod, isBn))
+                        if (txMethodLabel.isNotBlank()) add(txMethodLabel)
                     }.joinToString(" • ")
+                    val metaSection = if (metaParts.isNotBlank()) " | ($metaParts)" else ""
                     val amtStr = LocalizationProvider.formatAmount(t.amount, currency, isBn)
                     val runStr = LocalizationProvider.formatAmount(abs(running), currency, isBn)
                     val noteSuffix = if (t.note.isNotBlank()) {
@@ -1388,9 +1390,9 @@ object GoogleDocsSyncService {
                     }
                     customerLines.append(
                         if (isBn) {
-                            "     - [$tDate] $tTypeLabel: $amtStr | ($metaParts) -> জের: $runStr ($runStatus)$noteSuffix\n"
+                            "     - [$tDate] $tTypeLabel: $amtStr$metaSection -> জের: $runStr ($runStatus)$noteSuffix\n"
                         } else {
-                            "     - [$tDate] $tTypeLabel: $amtStr | ($metaParts) -> Balance After: $runStr ($runStatus)$noteSuffix\n"
+                            "     - [$tDate] $tTypeLabel: $amtStr$metaSection -> Balance After: $runStr ($runStatus)$noteSuffix\n"
                         }
                     )
                 }

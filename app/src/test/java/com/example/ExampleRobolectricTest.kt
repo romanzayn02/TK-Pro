@@ -7,6 +7,7 @@ import com.example.data.AppDatabase
 import com.example.data.AppSettings
 import com.example.data.LedgerRepository
 import com.example.ui.LocalizationProvider
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -365,6 +366,56 @@ class ExampleRobolectricTest {
         assertTrue(bnStatement.contains("আপনার বর্তমান মোট বকেয়া: ৳ ২০০"))
         assertTrue(bnStatement.contains("বাকি: ৳ ৫০০"))
         assertTrue(bnStatement.contains("জমা: ৳ ৩০০"))
+    }
+
+    @Test
+    fun `verify category পরিশোধ can be added and payment methods managed cleanly`() = runBlocking {
+        // Adding "পরিশোধ" and other previously blocked category names must persist cleanly
+        repository.addCustomCategory("পরিশোধ")
+        repository.addCustomCategory("বাকিতে বিক্রি")
+        var settings = repository.settingsFlow.first()
+        assertTrue("পরিশোধ should be present in customCategories", settings.customCategories.contains("পরিশোধ"))
+        assertTrue("বাকিতে বিক্রি should be present in customCategories", settings.customCategories.contains("বাকিতে বিক্রি"))
+
+        repository.removeCustomCategory("বাকিতে বিক্রি")
+        settings = repository.settingsFlow.first()
+        org.junit.Assert.assertFalse(settings.customCategories.contains("বাকিতে বিক্রি"))
+        assertTrue(settings.customCategories.contains("পরিশোধ"))
+
+        // Payment methods support default list, adding custom, removing, and clearing all
+        assertEquals(listOf("CASH", "BKASH", "NAGAD", "BANK"), settings.paymentMethods)
+        repository.addPaymentMethod("Rocket")
+        settings = repository.settingsFlow.first()
+        assertTrue(settings.paymentMethods.contains("Rocket"))
+
+        repository.removePaymentMethod("BANK")
+        settings = repository.settingsFlow.first()
+        org.junit.Assert.assertFalse(settings.paymentMethods.contains("BANK"))
+
+        repository.clearAllPaymentMethods()
+        settings = repository.settingsFlow.first()
+        assertTrue(settings.paymentMethods.isEmpty())
+
+        // Blank payment method must be omitted cleanly in share text
+        val txNoMethod = com.example.data.TransactionEntity(
+            id = 5L,
+            customerId = 10L,
+            type = "CREDIT",
+            amount = 250.0,
+            category = "পরিশোধ",
+            paymentMethod = "",
+            note = "",
+            timestamp = 1762943400000L
+        )
+        val bnMsg = com.example.ui.screens.buildSingleTransactionShareText(
+            transaction = txNoMethod,
+            customerName = "করিম",
+            balanceAfterTransaction = 0.0,
+            currency = "৳",
+            isBn = true
+        )
+        org.junit.Assert.assertFalse("Blank method line should be omitted", bnMsg.contains("পেমেন্টের মাধ্যম"))
+        assertTrue(bnMsg.contains("🏷️ খাত: পরিশোধ"))
     }
 }
 

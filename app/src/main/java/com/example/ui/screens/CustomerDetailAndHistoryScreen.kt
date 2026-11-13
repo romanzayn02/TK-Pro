@@ -160,7 +160,9 @@ internal fun buildSingleTransactionShareText(
                 append("আপনার দেওয়া $amountFormatted জমা হিসেবে গ্রহণ করা হয়েছে। ধন্যবাদ!\n")
             }
             append("🗓️ তারিখ ও সময়: $dateFormatted\n")
-            append("💳 পেমেন্টের মাধ্যম: $methodLabel\n")
+            if (methodLabel.isNotBlank()) {
+                append("💳 পেমেন্টের মাধ্যম: $methodLabel\n")
+            }
             if (transaction.category.isNotBlank()) {
                 append("🏷️ খাত: ${transaction.category}\n")
             }
@@ -198,7 +200,9 @@ internal fun buildSingleTransactionShareText(
                 append("We have received your payment of $amountFormatted. Thank you!\n")
             }
             append("🗓️ Date & Time: $dateFormatted\n")
-            append("💳 Payment Method: $methodLabel\n")
+            if (methodLabel.isNotBlank()) {
+                append("💳 Payment Method: $methodLabel\n")
+            }
             if (transaction.category.isNotBlank()) {
                 append("🏷️ Category: ${transaction.category}\n")
             }
@@ -1142,14 +1146,17 @@ fun TransactionItemGlassCard(
                         fontWeight = FontWeight.Bold,
                         color = accent
                     )
-                    Text(
-                        text = LocalizationProvider.paymentMethodLabel(
-                            transaction.paymentMethod,
-                            strings.isBn
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TallyCyanRefraction
+                    val txMethodLabel = LocalizationProvider.paymentMethodLabel(
+                        transaction.paymentMethod,
+                        strings.isBn
                     )
+                    if (txMethodLabel.isNotBlank()) {
+                        Text(
+                            text = txMethodLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TallyCyanRefraction
+                        )
+                    }
                 }
             }
 

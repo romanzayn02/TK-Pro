@@ -555,6 +555,7 @@ fun TallyKhataProApp(
             preselectedCustomerId = preselectedCustomerId,
             initialType = type,
             categories = uiState.settings.customCategories,
+            paymentMethods = uiState.settings.paymentMethods,
             viewModel = viewModel,
             onDismiss = { activeTxSheetConfig = null },
             onSaved = { activeTxSheetConfig = null }
@@ -570,6 +571,7 @@ fun TallyKhataProApp(
             preselectedCustomerId = txToEdit.customerId,
             initialType = txToEdit.type,
             categories = uiState.settings.customCategories,
+            paymentMethods = uiState.settings.paymentMethods,
             viewModel = viewModel,
             editingTransaction = txToEdit,
             onDismiss = { editingTransaction = null },

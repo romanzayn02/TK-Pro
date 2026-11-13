@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Sync
@@ -127,6 +128,7 @@ fun SettingsScreen(
     var ownerPhone by remember(settings.ownerPhone) { mutableStateOf(settings.ownerPhone) }
     var currencySymbol by remember(settings.currencySymbol) { mutableStateOf(settings.currencySymbol) }
     var newCategoryText by remember { mutableStateOf("") }
+    var newPaymentMethodText by remember { mutableStateOf("") }
     var customDocInput by remember(settings.syncedGoogleDocId) {
         mutableStateOf(settings.syncedGoogleDocId)
     }
@@ -146,6 +148,9 @@ fun SettingsScreen(
     var showSheetsSection by remember { mutableStateOf(false) }
     var showAccessErrorHelp by remember { mutableStateOf(false) }
     var categoryToDelete by remember { mutableStateOf<String?>(null) }
+    var showClearCategoriesConfirm by remember { mutableStateOf(false) }
+    var methodToDelete by remember { mutableStateOf<String?>(null) }
+    var showClearMethodsConfirm by remember { mutableStateOf(false) }
 
     val pendingWelcomeRestore by viewModel.pendingWelcomeCloudRestore.collectAsStateWithLifecycle()
 
@@ -1889,7 +1894,127 @@ fun SettingsScreen(
             }
         }
 
-        // 3. Customizable Categories Management
+        // 3A. Customizable Payment / Transaction Methods Management
+        item(key = "custom_payment_methods_card") {
+            LiquidGlassCard(
+                useDarkGlass = useDarkGlass,
+                accentTint = TallyCyanRefraction,
+                cornerRadius = 24.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = null,
+                                tint = TallyCyanRefraction
+                            )
+                            Text(
+                                text = if (strings.isBn) "পেমেন্ট ও লেনদেনের মাধ্যম" else "Payment & Transaction Methods",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (settings.paymentMethods.isNotEmpty()) {
+                            Text(
+                                text = if (strings.isBn) "সব মুছুন" else "Clear All",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = TallyRubyRed,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showClearMethodsConfirm = true }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .testTag("clear_all_payment_methods_button")
+                            )
+                        }
+                    }
+
+                    if (settings.paymentMethods.isEmpty()) {
+                        Text(
+                            text = if (strings.isBn) {
+                                "কোনো পেমেন্ট মাধ্যম যুক্ত নেই। প্রয়োজন হলে নিচে নতুন মাধ্যম যোগ করুন।"
+                            } else {
+                                "No payment methods configured. Add methods below if needed."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            settings.paymentMethods.forEach { method ->
+                                val label = LocalizationProvider.paymentMethodLabel(method, strings.isBn)
+                                LiquidFilterChip(
+                                    label = "$label  ✕",
+                                    selected = false,
+                                    onClick = { methodToDelete = method },
+                                    useDarkGlass = useDarkGlass,
+                                    accentColor = TallyCyanRefraction,
+                                    testTag = "settings_payment_method_chip_$method"
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newPaymentMethodText,
+                            onValueChange = { newPaymentMethodText = it },
+                            placeholder = {
+                                Text(
+                                    if (strings.isBn) "নতুন মাধ্যমের নাম লিখুন..." else "Enter new payment method..."
+                                )
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("new_payment_method_input")
+                        )
+                        SpringyLiquidButton(
+                            onClick = {
+                                if (newPaymentMethodText.isNotBlank()) {
+                                    viewModel.addPaymentMethod(newPaymentMethodText)
+                                    newPaymentMethodText = ""
+                                }
+                            },
+                            accentColor = TallyCyanRefraction,
+                            secondaryColor = Color(0xFF0077B6),
+                            testTag = "add_payment_method_button"
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = if (strings.isBn) "মাধ্যম যোগ করুন" else "Add Payment Method"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3B. Customizable Categories Management
         item(key = "custom_categories_card") {
             LiquidGlassCard(
                 useDarkGlass = useDarkGlass,
@@ -1910,7 +2035,8 @@ fun SettingsScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Category,
@@ -1931,7 +2057,7 @@ fun SettingsScreen(
                                 color = TallyRubyRed,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable { viewModel.clearAllCategories() }
+                                    .clickable { showClearCategoriesConfirm = true }
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                                     .testTag("clear_all_categories_button")
                             )
@@ -1940,7 +2066,7 @@ fun SettingsScreen(
 
                     if (settings.customCategories.isEmpty()) {
                         Text(
-                            text = if (strings.isBn) "কোনো ডিফল্ট লেনদেনের ধরন নেই। প্রয়োজন হলে নিচে নতুন ধরন যোগ করতে পারেন।" else "No default transaction types. Add custom types below if needed.",
+                            text = if (strings.isBn) "কোনো খাত যুক্ত নেই। প্রয়োজন হলে নিচে নতুন খাত যোগ করতে পারেন।" else "No categories added yet. Add custom categories below if needed.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2098,6 +2224,73 @@ fun SettingsScreen(
             onDismiss = { categoryToDelete = null },
             confirmTestTag = "confirm_remove_category_button",
             cancelTestTag = "cancel_remove_category_button"
+        )
+    }
+
+    if (showClearCategoriesConfirm) {
+        ConfirmActionDialog(
+            title = if (strings.isBn) "সব খাত মুছে ফেলবেন?" else "Clear All Categories?",
+            message = if (strings.isBn) {
+                "আপনি কি আপনার সব কাস্টম খাত তালিকা থেকে মুছে ফেলতে চান?"
+            } else {
+                "Are you sure you want to remove all custom categories from your list?"
+            },
+            confirmLabel = if (strings.isBn) "হ্যাঁ, সব মুছুন" else "Clear All",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyRubyRed,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                viewModel.clearAllCategories()
+                showClearCategoriesConfirm = false
+            },
+            onDismiss = { showClearCategoriesConfirm = false },
+            confirmTestTag = "confirm_clear_all_categories_button",
+            cancelTestTag = "cancel_clear_all_categories_button"
+        )
+    }
+
+    methodToDelete?.let { method ->
+        val label = LocalizationProvider.paymentMethodLabel(method, strings.isBn)
+        ConfirmActionDialog(
+            title = if (strings.isBn) "মাধ্যম মুছে ফেলবেন?" else "Remove Payment Method?",
+            message = if (strings.isBn) {
+                "\"$label\" মাধ্যমটি তালিকা থেকে মুছে ফেলতে চান?"
+            } else {
+                "Do you want to remove \"$label\" from your payment methods?"
+            },
+            confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Remove",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyCyanRefraction,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                viewModel.removePaymentMethod(method)
+                methodToDelete = null
+            },
+            onDismiss = { methodToDelete = null },
+            confirmTestTag = "confirm_remove_payment_method_button",
+            cancelTestTag = "cancel_remove_payment_method_button"
+        )
+    }
+
+    if (showClearMethodsConfirm) {
+        ConfirmActionDialog(
+            title = if (strings.isBn) "সব পেমেন্ট মাধ্যম মুছবেন?" else "Clear All Payment Methods?",
+            message = if (strings.isBn) {
+                "আপনি কি সব পেমেন্ট ও লেনদেনের মাধ্যম তালিকা থেকে মুছে ফেলতে চান?"
+            } else {
+                "Are you sure you want to clear all payment methods from your list?"
+            },
+            confirmLabel = if (strings.isBn) "হ্যাঁ, সব মুছুন" else "Clear All",
+            cancelLabel = strings.cancelButton,
+            accentColor = TallyRubyRed,
+            useDarkGlass = useDarkGlass,
+            onConfirm = {
+                viewModel.clearAllPaymentMethods()
+                showClearMethodsConfirm = false
+            },
+            onDismiss = { showClearMethodsConfirm = false },
+            confirmTestTag = "confirm_clear_all_payment_methods_button",
+            cancelTestTag = "cancel_clear_all_payment_methods_button"
         )
     }
 }

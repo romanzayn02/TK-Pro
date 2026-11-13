@@ -21,7 +21,8 @@ data class AppSettings(
     val language: String = "BN", // "BN" (বাংলা) default, or "EN" (English)
     val profilePhotoUri: String = "", // Local override image path on device (no cloud sync)
     val googlePhotoUrl: String = "",  // Default Google Account profile picture URL
-    val customCategories: List<String> = emptyList(), // No hardcoded default transaction categories
+    val customCategories: List<String> = emptyList(), // User-managed transaction categories
+    val paymentMethods: List<String> = LedgerRepository.DEFAULT_PAYMENT_METHODS, // User-managed payment/transaction methods
     val useDarkGlassTheme: Boolean = false,
     val biometricLockEnabled: Boolean = false,
     val isSetupCompleted: Boolean = false,
@@ -47,18 +48,7 @@ class LedgerRepository(
     private val context: Context
 ) {
     companion object {
-        val LEGACY_DEFAULT_CATEGORIES = setOf(
-            "বাকিতে বিক্রি",
-            "নগদ জমা",
-            "বাকি আদায়",
-            "বাকি আদায়",
-            "মাল ক্রয়",
-            "মাল ক্রয়",
-            "পরিশোধ",
-            "পরিবহন ও ভাড়া",
-            "দোকান খরচ",
-            "অন্যান্য"
-        )
+        val DEFAULT_PAYMENT_METHODS = listOf("CASH", "BKASH", "NAGAD", "BANK")
     }
 
     private object Keys {
@@ -70,6 +60,7 @@ class LedgerRepository(
         val PROFILE_PHOTO_URI = stringPreferencesKey("profile_photo_uri")
         val GOOGLE_PHOTO_URL = stringPreferencesKey("google_photo_url")
         val CUSTOM_CATEGORIES = stringPreferencesKey("custom_categories")
+        val PAYMENT_METHODS = stringPreferencesKey("payment_methods")
         val USE_DARK_GLASS = booleanPreferencesKey("use_dark_glass")
         val BIOMETRIC_LOCK_ENABLED = booleanPreferencesKey("biometric_lock_enabled")
         val IS_SETUP_COMPLETED = booleanPreferencesKey("is_setup_completed")
@@ -90,7 +81,15 @@ class LedgerRepository(
         } else {
             rawCats.split("|")
                 .map { it.trim() }
-                .filter { it.isNotBlank() && it !in LEGACY_DEFAULT_CATEGORIES }
+                .filter { it.isNotBlank() }
+        }
+        val rawMethods = prefs[Keys.PAYMENT_METHODS]
+        val methods = when {
+            rawMethods == null -> DEFAULT_PAYMENT_METHODS
+            rawMethods.isBlank() || rawMethods == "__EMPTY__" -> emptyList()
+            else -> rawMethods.split("|")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
         }
         val fallbackGooglePhoto = GoogleDocsSyncService.getSignedInPhotoUrl(context).orEmpty()
         AppSettings(
@@ -102,6 +101,7 @@ class LedgerRepository(
             profilePhotoUri = prefs[Keys.PROFILE_PHOTO_URI] ?: "",
             googlePhotoUrl = (prefs[Keys.GOOGLE_PHOTO_URL] ?: "").ifBlank { fallbackGooglePhoto },
             customCategories = categories,
+            paymentMethods = methods,
             useDarkGlassTheme = prefs[Keys.USE_DARK_GLASS] ?: false,
             biometricLockEnabled = prefs[Keys.BIOMETRIC_LOCK_ENABLED] ?: false,
             isSetupCompleted = prefs[Keys.IS_SETUP_COMPLETED] ?: false,
@@ -364,18 +364,31 @@ class LedgerRepository(
         }
     }
 
-    suspend fun addCustomCategory(newCategory: String, currentCategories: List<String>) {
+    suspend fun addCustomCategory(newCategory: String, currentCategories: List<String> = emptyList()) {
         val trimmed = newCategory.trim()
-        if (trimmed.isEmpty() || currentCategories.contains(trimmed)) return
-        val updated = currentCategories + trimmed
+        if (trimmed.isEmpty()) return
         context.dataStore.edit { prefs ->
+            val raw = prefs[Keys.CUSTOM_CATEGORIES]
+            val base = if (raw == null || raw.isBlank() || raw == "__EMPTY__") {
+                emptyList()
+            } else {
+                raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            if (base.any { it.equals(trimmed, ignoreCase = true) }) return@edit
+            val updated = base + trimmed
             prefs[Keys.CUSTOM_CATEGORIES] = updated.joinToString("|")
         }
     }
 
-    suspend fun removeCustomCategory(category: String, currentCategories: List<String>) {
-        val updated = currentCategories.filterNot { it == category }
+    suspend fun removeCustomCategory(category: String, currentCategories: List<String> = emptyList()) {
         context.dataStore.edit { prefs ->
+            val raw = prefs[Keys.CUSTOM_CATEGORIES]
+            val base = if (raw == null || raw.isBlank() || raw == "__EMPTY__") {
+                emptyList()
+            } else {
+                raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            val updated = base.filterNot { it == category }
             prefs[Keys.CUSTOM_CATEGORIES] = if (updated.isEmpty()) "__EMPTY__" else updated.joinToString("|")
         }
     }
@@ -383,6 +396,46 @@ class LedgerRepository(
     suspend fun clearAllCategories() {
         context.dataStore.edit { prefs ->
             prefs[Keys.CUSTOM_CATEGORIES] = "__EMPTY__"
+        }
+    }
+
+    suspend fun addPaymentMethod(newMethod: String) {
+        val trimmed = newMethod.trim()
+        if (trimmed.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val raw = prefs[Keys.PAYMENT_METHODS]
+            val base = when {
+                raw == null -> DEFAULT_PAYMENT_METHODS
+                raw.isBlank() || raw == "__EMPTY__" -> emptyList()
+                else -> raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            val alreadyExists = base.any { existing ->
+                existing.equals(trimmed, ignoreCase = true) ||
+                    com.example.ui.LocalizationProvider.paymentMethodLabel(existing, true).equals(trimmed, ignoreCase = true) ||
+                    com.example.ui.LocalizationProvider.paymentMethodLabel(existing, false).equals(trimmed, ignoreCase = true)
+            }
+            if (alreadyExists) return@edit
+            val updated = base + trimmed
+            prefs[Keys.PAYMENT_METHODS] = updated.joinToString("|")
+        }
+    }
+
+    suspend fun removePaymentMethod(method: String) {
+        context.dataStore.edit { prefs ->
+            val raw = prefs[Keys.PAYMENT_METHODS]
+            val base = when {
+                raw == null -> DEFAULT_PAYMENT_METHODS
+                raw.isBlank() || raw == "__EMPTY__" -> emptyList()
+                else -> raw.split("|").map { it.trim() }.filter { it.isNotBlank() }
+            }
+            val updated = base.filterNot { it == method }
+            prefs[Keys.PAYMENT_METHODS] = if (updated.isEmpty()) "__EMPTY__" else updated.joinToString("|")
+        }
+    }
+
+    suspend fun clearAllPaymentMethods() {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.PAYMENT_METHODS] = "__EMPTY__"
         }
     }
 
@@ -402,6 +455,7 @@ class LedgerRepository(
             put("currencySymbol", currentSettings.currencySymbol)
             put("language", currentSettings.language)
             put("customCategories", JSONArray(currentSettings.customCategories))
+            put("paymentMethods", JSONArray(currentSettings.paymentMethods))
         }
         root.put("settings", settingsJson)
 
@@ -524,8 +578,8 @@ class LedgerRepository(
                         customerId = custId,
                         type = obj.optString("type", "DEBIT").ifBlank { "DEBIT" },
                         amount = obj.optDouble("amount", 0.0),
-                        category = obj.optString("category", "অন্যান্য").ifBlank { "অন্যান্য" },
-                        paymentMethod = obj.optString("paymentMethod", "CASH").ifBlank { "CASH" },
+                        category = obj.optString("category", "").trim(),
+                        paymentMethod = obj.optString("paymentMethod", "").trim(),
                         note = obj.optString("note", ""),
                         receiptUri = rawReceipt?.takeIf { it.isNotBlank() && it != "null" },
                         timestamp = obj.optLong("timestamp", System.currentTimeMillis())
@@ -547,6 +601,14 @@ class LedgerRepository(
                         if (c.isNotEmpty() && c !in importedCats) importedCats.add(c)
                     }
                 }
+                val methodsArray = sObj.optJSONArray("paymentMethods")
+                val importedMethods = mutableListOf<String>()
+                if (methodsArray != null) {
+                    for (idx in 0 until methodsArray.length()) {
+                        val m = methodsArray.optString(idx).trim()
+                        if (m.isNotEmpty() && m !in importedMethods) importedMethods.add(m)
+                    }
+                }
                 context.dataStore.edit { prefs ->
                     prefs[Keys.ACCOUNT_TYPE] = accType
                     if (bName.isNotBlank()) prefs[Keys.BUSINESS_NAME] = bName.trim()
@@ -555,6 +617,9 @@ class LedgerRepository(
                     if (lang == "BN" || lang == "EN") prefs[Keys.LANGUAGE] = lang
                     if (catsArray != null) {
                         prefs[Keys.CUSTOM_CATEGORIES] = if (importedCats.isEmpty()) "__EMPTY__" else importedCats.joinToString("|")
+                    }
+                    if (methodsArray != null) {
+                        prefs[Keys.PAYMENT_METHODS] = if (importedMethods.isEmpty()) "__EMPTY__" else importedMethods.joinToString("|")
                     }
                     prefs[Keys.IS_SETUP_COMPLETED] = true
                     prefs[Keys.HAS_PENDING_CLOUD_SYNC] = false

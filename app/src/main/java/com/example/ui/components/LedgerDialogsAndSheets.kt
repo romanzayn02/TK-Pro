@@ -53,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -62,6 +63,8 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.ContactPhone
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -689,6 +692,7 @@ fun AddTransactionBottomSheet(
     preselectedCustomerId: Long?,
     initialType: String = "DEBIT",
     categories: List<String>,
+    paymentMethods: List<String> = com.example.data.LedgerRepository.DEFAULT_PAYMENT_METHODS,
     viewModel: LedgerViewModel,
     editingTransaction: com.example.data.TransactionEntity? = null,
     onDismiss: () -> Unit,
@@ -715,12 +719,12 @@ fun AddTransactionBottomSheet(
             } ?: ""
         )
     }
-    // No default category pre-selected! User can select one optionally or leave it blank
+    // No default category or payment method pre-selected! User decides what to select
     var selectedCategory by remember(editingTransaction) {
         mutableStateOf(editingTransaction?.category ?: "")
     }
     var paymentMethod by remember(editingTransaction) {
-        mutableStateOf(editingTransaction?.paymentMethod ?: "CASH")
+        mutableStateOf(editingTransaction?.paymentMethod ?: "")
     }
     var note by remember(editingTransaction) {
         mutableStateOf(editingTransaction?.note ?: "")
@@ -735,6 +739,14 @@ fun AddTransactionBottomSheet(
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showMoreTxOptions by remember { mutableStateOf(false) }
+    var showInlineAddMethod by remember { mutableStateOf(false) }
+    var inlineNewMethodText by remember { mutableStateOf("") }
+    var isManagingMethods by remember { mutableStateOf(false) }
+    var methodPendingDelete by remember { mutableStateOf<String?>(null) }
+    var showInlineAddCategory by remember { mutableStateOf(false) }
+    var inlineNewCategoryText by remember { mutableStateOf("") }
+    var isManagingCategories by remember { mutableStateOf(false) }
+    var categoryPendingDelete by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val amountFocusRequester = remember { FocusRequester() }
@@ -1179,66 +1191,288 @@ fun AddTransactionBottomSheet(
                         }
                     }
 
-                    // Payment Method Selector (Cash, bKash, Nagad, Bank)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val methods = listOf(
-                            Triple("CASH", if (strings.isBn) "নগদ" else "Cash", TallyEmeraldGreen),
-                            Triple("BKASH", if (strings.isBn) "বিকাশ" else "bKash", Color(0xFFE2136E)),
-                            Triple("NAGAD", if (strings.isBn) "নগদ অ্যাপ" else "Nagad", Color(0xFFF7941D)),
-                            Triple("BANK", if (strings.isBn) "ব্যাংক" else "Bank", TallyCyanRefraction)
-                        )
-                        methods.forEach { (code, label, tint) ->
-                            LiquidFilterChip(
-                                label = label,
-                                selected = paymentMethod == code,
-                                onClick = { paymentMethod = code },
-                                useDarkGlass = useDarkGlass,
-                                accentColor = tint,
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = when (code) {
-                                            "CASH" -> Icons.Default.Payments
-                                            "BANK" -> Icons.Default.AccountBalance
-                                            else -> Icons.Default.PhoneAndroid
-                                        },
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = if (paymentMethod == code) Color.White else tint
-                                    )
-                                },
-                                testTag = "payment_method_$code"
+                    // Payment / Transaction Method Selector (Optional, user decides; supports add & delete)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (strings.isBn) "পেমেন্ট মাধ্যম (ঐচ্ছিক)" else "Payment Method (Optional)",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                LiquidFilterChip(
+                                    label = if (strings.isBn) "+ যোগ" else "+ Add",
+                                    selected = showInlineAddMethod,
+                                    onClick = { showInlineAddMethod = !showInlineAddMethod },
+                                    useDarkGlass = useDarkGlass,
+                                    accentColor = TallyCyanRefraction,
+                                    testTag = "toggle_inline_add_payment_method"
+                                )
+                                if (paymentMethods.isNotEmpty()) {
+                                    LiquidFilterChip(
+                                        label = if (isManagingMethods) {
+                                            if (strings.isBn) "সম্পন্ন" else "Done"
+                                        } else {
+                                            if (strings.isBn) "মুছুন" else "Delete"
+                                        },
+                                        selected = isManagingMethods,
+                                        onClick = { isManagingMethods = !isManagingMethods },
+                                        useDarkGlass = useDarkGlass,
+                                        accentColor = TallyRubyRed,
+                                        testTag = "toggle_manage_payment_methods"
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = showInlineAddMethod) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = inlineNewMethodText,
+                                    onValueChange = { inlineNewMethodText = it },
+                                    placeholder = {
+                                        Text(if (strings.isBn) "নতুন মাধ্যম লিখুন..." else "New method name...")
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("inline_new_payment_method_input")
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val clean = inlineNewMethodText.trim()
+                                        if (clean.isNotEmpty()) {
+                                            viewModel.addPaymentMethod(clean)
+                                            paymentMethod = clean
+                                            inlineNewMethodText = ""
+                                            showInlineAddMethod = false
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(TallyCyanRefraction.copy(alpha = 0.22f))
+                                        .testTag("inline_add_payment_method_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = if (strings.isBn) "মাধ্যম যোগ করুন" else "Add Method",
+                                        tint = TallyCyanRefraction
+                                    )
+                                }
+                            }
+                        }
+
+                        if (paymentMethods.isNotEmpty()) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                paymentMethods.forEach { code ->
+                                    val label = LocalizationProvider.paymentMethodLabel(code, strings.isBn)
+                                    val tint = when (code.uppercase()) {
+                                        "CASH" -> TallyEmeraldGreen
+                                        "BKASH" -> Color(0xFFE2136E)
+                                        "NAGAD" -> Color(0xFFF7941D)
+                                        "BANK" -> TallyCyanRefraction
+                                        else -> activeAccent
+                                    }
+                                    val isSelected = paymentMethod == code
+                                    LiquidFilterChip(
+                                        label = if (isManagingMethods) "$label  ✕" else label,
+                                        selected = if (isManagingMethods) false else isSelected,
+                                        onClick = {
+                                            if (isManagingMethods) {
+                                                methodPendingDelete = code
+                                            } else {
+                                                paymentMethod = if (isSelected) "" else code
+                                            }
+                                        },
+                                        useDarkGlass = useDarkGlass,
+                                        accentColor = if (isManagingMethods) TallyRubyRed else tint,
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = when (code.uppercase()) {
+                                                    "CASH" -> Icons.Default.Payments
+                                                    "BANK" -> Icons.Default.AccountBalance
+                                                    "BKASH", "NAGAD" -> Icons.Default.PhoneAndroid
+                                                    else -> Icons.Default.Payments
+                                                },
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp),
+                                                tint = if (!isManagingMethods && isSelected) Color.White else tint
+                                            )
+                                        },
+                                        testTag = "payment_method_$code"
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // Customizable Category Selector (Optional - click selected category again to deselect)
-                    if (categories.isNotEmpty()) {
-                        FlowRow(
+                    // Customizable Category Selector (Optional - tap again to deselect; supports inline add & delete)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            categories.forEach { cat ->
-                                val isSelected = selectedCategory == cat
+                            Text(
+                                text = if (strings.isBn) "খাত / ক্যাটাগরি (ঐচ্ছিক)" else "Category (Optional)",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 LiquidFilterChip(
-                                    label = cat,
-                                    selected = isSelected,
-                                    onClick = {
-                                        selectedCategory = if (isSelected) "" else cat
-                                    },
+                                    label = if (strings.isBn) "+ যোগ" else "+ Add",
+                                    selected = showInlineAddCategory,
+                                    onClick = { showInlineAddCategory = !showInlineAddCategory },
                                     useDarkGlass = useDarkGlass,
-                                    accentColor = activeAccent,
-                                    testTag = "category_chip_$cat"
+                                    accentColor = TallyGoldAccent,
+                                    testTag = "toggle_inline_add_category"
                                 )
+                                if (categories.isNotEmpty()) {
+                                    LiquidFilterChip(
+                                        label = if (isManagingCategories) {
+                                            if (strings.isBn) "সম্পন্ন" else "Done"
+                                        } else {
+                                            if (strings.isBn) "মুছুন" else "Delete"
+                                        },
+                                        selected = isManagingCategories,
+                                        onClick = { isManagingCategories = !isManagingCategories },
+                                        useDarkGlass = useDarkGlass,
+                                        accentColor = TallyRubyRed,
+                                        testTag = "toggle_manage_categories"
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = showInlineAddCategory) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = inlineNewCategoryText,
+                                    onValueChange = { inlineNewCategoryText = it },
+                                    placeholder = { Text(strings.newCategoryPlaceholder) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("inline_new_category_input")
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val clean = inlineNewCategoryText.trim()
+                                        if (clean.isNotEmpty()) {
+                                            viewModel.addCustomCategory(clean)
+                                            selectedCategory = clean
+                                            inlineNewCategoryText = ""
+                                            showInlineAddCategory = false
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(TallyGoldAccent.copy(alpha = 0.22f))
+                                        .testTag("inline_add_category_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = strings.addCategoryButton,
+                                        tint = TallyGoldAccent
+                                    )
+                                }
+                            }
+                        }
+
+                        if (categories.isNotEmpty()) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                categories.forEach { cat ->
+                                    val isSelected = selectedCategory == cat
+                                    LiquidFilterChip(
+                                        label = if (isManagingCategories) "$cat  ✕" else cat,
+                                        selected = if (isManagingCategories) false else isSelected,
+                                        onClick = {
+                                            if (isManagingCategories) {
+                                                categoryPendingDelete = cat
+                                            } else {
+                                                selectedCategory = if (isSelected) "" else cat
+                                            }
+                                        },
+                                        useDarkGlass = useDarkGlass,
+                                        accentColor = if (isManagingCategories) TallyRubyRed else activeAccent,
+                                        testTag = "category_chip_$cat"
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            methodPendingDelete?.let { code ->
+                val label = LocalizationProvider.paymentMethodLabel(code, strings.isBn)
+                ConfirmActionDialog(
+                    title = if (strings.isBn) "মাধ্যম মুছে ফেলবেন?" else "Delete Payment Method?",
+                    message = if (strings.isBn) {
+                        "\"$label\" মাধ্যমটি তালিকা থেকে মুছে ফেলতে চান?"
+                    } else {
+                        "Do you want to delete \"$label\" from payment methods?"
+                    },
+                    confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Delete",
+                    cancelLabel = strings.cancelButton,
+                    accentColor = TallyRubyRed,
+                    useDarkGlass = useDarkGlass,
+                    onConfirm = {
+                        viewModel.removePaymentMethod(code)
+                        if (paymentMethod == code) paymentMethod = ""
+                        methodPendingDelete = null
+                    },
+                    onDismiss = { methodPendingDelete = null },
+                    confirmTestTag = "confirm_inline_delete_method_button",
+                    cancelTestTag = "cancel_inline_delete_method_button"
+                )
+            }
+
+            categoryPendingDelete?.let { cat ->
+                ConfirmActionDialog(
+                    title = if (strings.isBn) "খাত মুছে ফেলবেন?" else "Delete Category?",
+                    message = if (strings.isBn) {
+                        "\"$cat\" খাতটি তালিকা থেকে মুছে ফেলতে চান?"
+                    } else {
+                        "Do you want to delete \"$cat\" from categories?"
+                    },
+                    confirmLabel = if (strings.isBn) "হ্যাঁ, মুছুন" else "Delete",
+                    cancelLabel = strings.cancelButton,
+                    accentColor = TallyRubyRed,
+                    useDarkGlass = useDarkGlass,
+                    onConfirm = {
+                        viewModel.removeCustomCategory(cat)
+                        if (selectedCategory == cat) selectedCategory = ""
+                        categoryPendingDelete = null
+                    },
+                    onDismiss = { categoryPendingDelete = null },
+                    confirmTestTag = "confirm_inline_delete_category_button",
+                    cancelTestTag = "cancel_inline_delete_category_button"
+                )
             }
 
             if (errorMessage != null) {

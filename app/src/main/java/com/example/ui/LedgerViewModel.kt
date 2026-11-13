@@ -490,7 +490,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     type = "DEBIT",
                     amount = openingDebit,
                     category = if (isBn) "প্রারম্ভিক জের" else "Opening Balance",
-                    paymentMethod = "CASH",
+                    paymentMethod = "",
                     note = if (isBn) "প্রারম্ভিক জের (টাকা পাব / দিয়েছি)" else "Opening Balance (Debit)",
                     receiptUri = null
                 )
@@ -501,7 +501,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     type = "CREDIT",
                     amount = openingCredit,
                     category = if (isBn) "প্রারম্ভিক জের" else "Opening Balance",
-                    paymentMethod = "CASH",
+                    paymentMethod = "",
                     note = if (isBn) "প্রারম্ভিক জের (টাকা দেব / পেয়েছি)" else "Opening Balance (Credit)",
                     receiptUri = null
                 )
@@ -799,6 +799,24 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     fun clearAllCategories() {
         viewModelScope.launch {
             repository.clearAllCategories()
+        }
+    }
+
+    fun addPaymentMethod(method: String) {
+        viewModelScope.launch {
+            repository.addPaymentMethod(method)
+        }
+    }
+
+    fun removePaymentMethod(method: String) {
+        viewModelScope.launch {
+            repository.removePaymentMethod(method)
+        }
+    }
+
+    fun clearAllPaymentMethods() {
+        viewModelScope.launch {
+            repository.clearAllPaymentMethods()
         }
     }
 

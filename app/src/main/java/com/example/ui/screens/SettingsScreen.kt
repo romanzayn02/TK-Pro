@@ -138,7 +138,7 @@ fun SettingsScreen(
 
     var pendingSyncAction by remember { mutableStateOf(GoogleDocsSyncAction.PUSH_TO_DOCS) }
     var pendingCustomDocId by remember { mutableStateOf<String?>(null) }
-    var signedInEmail by remember(isSyncingDocs) {
+    var signedInEmail by remember(isSyncingDocs, settings.lastSyncedAtMillis, settings.lastSheetSyncedAtMillis) {
         mutableStateOf(GoogleDocsSyncService.getSignedInEmail(context))
     }
     var requestAccessEmail by remember(signedInEmail) {
@@ -1015,7 +1015,22 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Equal-Height Action Buttons Row (Auto Restore & 403 Fix)
+                    val show403HelpControl = shouldShowAccess403Help(
+                        isSignedIn = isSignedIn,
+                        isDocConnected = isDocConnected,
+                        isSheetConnected = isSheetConnected,
+                        lastSyncedAtMillis = settings.lastSyncedAtMillis,
+                        lastSheetSyncedAtMillis = settings.lastSheetSyncedAtMillis,
+                        lastSyncError = settings.lastSyncError,
+                        isSyncFailedOfflineMode = uiState.isSyncFailedOfflineMode
+                    )
+                    LaunchedEffect(show403HelpControl) {
+                        if (!show403HelpControl && showAccessErrorHelp) {
+                            showAccessErrorHelp = false
+                        }
+                    }
+
+                    // Equal-Height Action Buttons Row (Auto Restore & conditional 403 Fix)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1061,29 +1076,31 @@ fun SettingsScreen(
                             testTag = "auto_cloud_restore_button"
                         )
 
-                        LiquidFilterChip(
-                            label = if (strings.isBn) "403 সমাধান" else "403 Fix",
-                            selected = showAccessErrorHelp,
-                            onClick = { showAccessErrorHelp = !showAccessErrorHelp },
-                            useDarkGlass = useDarkGlass,
-                            accentColor = TallyGoldAccent,
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.HelpOutline,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (showAccessErrorHelp) Color.White else TallyGoldAccent
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp),
-                            testTag = "toggle_403_help_chip"
-                        )
+                        if (show403HelpControl) {
+                            LiquidFilterChip(
+                                label = if (strings.isBn) "403 সমাধান" else "403 Fix",
+                                selected = showAccessErrorHelp,
+                                onClick = { showAccessErrorHelp = !showAccessErrorHelp },
+                                useDarkGlass = useDarkGlass,
+                                accentColor = TallyGoldAccent,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.HelpOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (showAccessErrorHelp) Color.White else TallyGoldAccent
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                testTag = "toggle_403_help_chip"
+                            )
+                        }
                     }
 
                     AnimatedVisibility(
-                        visible = showAccessErrorHelp,
+                        visible = showAccessErrorHelp && show403HelpControl,
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut() + shrinkVertically()
                     ) {
@@ -2293,5 +2310,30 @@ fun SettingsScreen(
             cancelTestTag = "cancel_clear_all_payment_methods_button"
         )
     }
+}
+
+internal fun shouldShowAccess403Help(
+    isSignedIn: Boolean,
+    isDocConnected: Boolean,
+    isSheetConnected: Boolean,
+    lastSyncedAtMillis: Long,
+    lastSheetSyncedAtMillis: Long,
+    lastSyncError: String,
+    isSyncFailedOfflineMode: Boolean
+): Boolean {
+    val errLower = lastSyncError.lowercase()
+    val isExplicitAuthOr403Error = errLower.contains("403") ||
+        errLower.contains("access_denied") ||
+        errLower.contains("access blocked") ||
+        errLower.contains("forbidden") ||
+        errLower.contains("unauthorized") ||
+        errLower.contains("permission") ||
+        errLower.contains("consent")
+    if (isExplicitAuthOr403Error) return true
+
+    val hasWorkingSync = (isDocConnected || isSheetConnected || lastSyncedAtMillis > 0L || lastSheetSyncedAtMillis > 0L) &&
+        !isSyncFailedOfflineMode &&
+        lastSyncError.isBlank()
+    return !(isSignedIn && hasWorkingSync)
 }
 

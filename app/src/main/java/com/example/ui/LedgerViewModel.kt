@@ -1554,6 +1554,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         val token = authOutcome.accessToken
         _isSyncingGoogleDocs.value = true
         var mergedAny = false
+        var cloudCheckSucceeded = false
         var totalMergedTransactions = 0
         val isBn = currentSettings.language != "EN"
 
@@ -1563,6 +1564,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 // Lightweight metadata check first:
                 val metaRes = GoogleDocsSyncService.getDocMetadata(token, docId)
                 if (metaRes.isSuccess) {
+                    cloudCheckSucceeded = true
                     val meta = metaRes.getOrThrow()
                     val lastRevId = currentSettings.lastSyncedDocRevisionId
                     val lastSyncedAt = currentSettings.lastSyncedAtMillis
@@ -1617,6 +1619,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 val sheetId = currentSettings.syncedGoogleSheetId
                 val pullRes = GoogleDocsSyncService.pullLedgerFromGoogleSheet(token, sheetId)
                 if (pullRes.isSuccess) {
+                    cloudCheckSucceeded = true
                     if (!isManual && (isMutatingOrPushing || (System.currentTimeMillis() - lastLocalMutationAtMillis < 8000L))) {
                         return false
                     }
@@ -1640,6 +1643,13 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                         lastKnownRemoteSheetHash = remoteHash
                     }
                 }
+            }
+
+            if (cloudCheckSucceeded && !currentSettings.hasPendingCloudSync &&
+                (_isSyncFailedOfflineMode.value || currentSettings.lastSyncError.isNotBlank())
+            ) {
+                _isSyncFailedOfflineMode.value = false
+                repository.setPendingCloudSync(false, "")
             }
 
             if (mergedAny) {

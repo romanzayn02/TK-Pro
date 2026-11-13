@@ -417,5 +417,48 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertFalse("Blank method line should be omitted", bnMsg.contains("পেমেন্টের মাধ্যম"))
         assertTrue(bnMsg.contains("🏷️ খাত: পরিশোধ"))
     }
+
+    @Test
+    fun `verify 403 help is hidden when signed in and sync is working`() {
+        // Signed in + Doc synced + no error -> hide 403 UI
+        org.junit.Assert.assertFalse(
+            com.example.ui.screens.shouldShowAccess403Help(
+                isSignedIn = true,
+                isDocConnected = true,
+                isSheetConnected = false,
+                lastSyncedAtMillis = 1762943400000L,
+                lastSheetSyncedAtMillis = 0L,
+                lastSyncError = "",
+                isSyncFailedOfflineMode = false
+            )
+        )
+
+        // Not signed in -> show 403 help
+        assertTrue(
+            com.example.ui.screens.shouldShowAccess403Help(
+                isSignedIn = false,
+                isDocConnected = false,
+                isSheetConnected = false,
+                lastSyncedAtMillis = 0L,
+                lastSheetSyncedAtMillis = 0L,
+                lastSyncError = "",
+                isSyncFailedOfflineMode = false
+            )
+        )
+
+        // Explicit 403 error -> show 403 help even if signed in
+        assertTrue(
+            com.example.ui.screens.shouldShowAccess403Help(
+                isSignedIn = true,
+                isDocConnected = true,
+                isSheetConnected = false,
+                lastSyncedAtMillis = 1762943400000L,
+                lastSheetSyncedAtMillis = 0L,
+                lastSyncError = "Google Docs update failed (403): access_denied",
+                isSyncFailedOfflineMode = true
+            )
+        )
+    }
 }
+
 
